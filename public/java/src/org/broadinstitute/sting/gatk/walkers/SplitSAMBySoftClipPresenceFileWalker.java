@@ -135,7 +135,7 @@ public class SplitSAMBySoftClipPresenceFileWalker extends ReadPairWalker<Collect
             copy.setAttribute(e.getKey(), e.getValue());
 
         //Force "queryname" sort order
-        copy.setSortOrder(SAMFileHeader.SortOrder.queryname);
+        copy.setSortOrder(SAMFileHeader.SortOrder.unsorted);
 
         return copy;
     }
