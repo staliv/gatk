@@ -44,6 +44,9 @@ public class SplitSAMBySoftClipPresenceFileWalker extends ReadPairWalker<Collect
     @Argument(fullName = "bam_compression", shortName = "compress", doc = "Compression level to use for writing BAM files", required = false)
     public Integer BAMCompression = 5;
 
+    @Argument(fullName = "clipLengthCutOff", shortName = "cutoff", doc = "Required minimum length of soft clipping in order to be split into the separate soft clipping file", required = false)
+    public Integer clipLengthCutOff = 0;
+
     private static Logger logger = Logger.getLogger(SplitSAMBySoftClipPresenceFileWalker.class);
     private static String VERSION = "0.0.1";
 
@@ -98,16 +101,9 @@ public class SplitSAMBySoftClipPresenceFileWalker extends ReadPairWalker<Collect
 
         String outputKey = "noSoftClip";
 
-        for (SAMRecord read : reads) {
-            //Find out if read contains soft clipping in CIGAR
-            Cigar cigar = read.getCigar();
 
-            for(CigarElement cigarElement : cigar.getCigarElements()) {
-                if (cigarElement.getOperator().equals(CigarOperator.SOFT_CLIP)) {
-                    outputKey = "softClip";
-                    break;
-                }
-            }
+        if (readsContainSoftClipping(reads)) {
+            outputKey = "softClip";
         }
 
         SAMFileWriter output = outputs.get(outputKey);
@@ -121,6 +117,38 @@ public class SplitSAMBySoftClipPresenceFileWalker extends ReadPairWalker<Collect
         }
 
         return outputs;
+    }
+
+    private boolean readsContainSoftClipping(Collection<SAMRecord> reads) {
+
+        boolean hasSoftClip = false;
+
+        //Find out if read contains soft clipping in CIGAR
+        for (SAMRecord read : reads) {
+
+            Cigar cigar = read.getCigar();
+
+            for(CigarElement element: cigar.getCigarElements()) {
+                if (element.getOperator().equals(CigarOperator.SOFT_CLIP)) {
+                    //Check if length is greater than cut off
+                    if (element.getLength() > 0 && element.getLength() >= clipLengthCutOff) {
+                        hasSoftClip = true;
+                    }
+                }
+            }
+
+
+/*
+            //Find out if read contains soft clipping in CIGAR
+            String cigar = read.getCigar().toString();
+
+            if (cigar.contains("S")) {
+                hasSoftClip = true;
+            }
+*/
+        }
+
+        return hasSoftClip;
     }
 
     public static SAMFileHeader duplicateSAMFileHeader(SAMFileHeader toCopy) {
