@@ -7,9 +7,15 @@ Splits SAM/BAM files in two. One part with all the reads that contain soft clipp
 
 Example:
 
-SAM file needs to have sort order queryname, use Picards `SamSort` to fix:
+SAM file needs to have sort order queryname, use Picards `SortSam` to fix:
 
 	java -Xmx4g -jar ./picard/SortSam.jar I=aligned.bam O=aligned.querynamesorted.bam SO=queryname
+	
+Or `samtools` if your file is already sorted correctly but has the wrong `SO` header:
+
+	samtools view -H -o header.sam aligned.bam
+	sed -ie 's/SO\:unsorted/SO\:queryname/g' ./header.sam
+	samtools reheader ./header.sam aligned.bam
 
 Split file into `aligned.querynamesorted.split.bam` and `aligned.querynamesorted.split_sc.bam`: 
 
