@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.executive;
 
 import net.sf.picard.reference.IndexedFastaSequenceFile;
@@ -7,11 +32,13 @@ import org.broadinstitute.sting.gatk.datasources.reads.SAMDataSource;
 import org.broadinstitute.sting.gatk.datasources.reads.Shard;
 import org.broadinstitute.sting.gatk.datasources.rmd.ReferenceOrderedDataSource;
 import org.broadinstitute.sting.gatk.io.OutputTracker;
-import org.broadinstitute.sting.gatk.io.ThreadLocalOutputTracker;
+import org.broadinstitute.sting.gatk.io.ThreadGroupOutputTracker;
+import org.broadinstitute.sting.gatk.resourcemanagement.ThreadAllocation;
 import org.broadinstitute.sting.gatk.walkers.TreeReducible;
 import org.broadinstitute.sting.gatk.walkers.Walker;
+import org.broadinstitute.sting.utils.MultiThreadedErrorTracker;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
-import org.broadinstitute.sting.utils.exceptions.StingException;
+import org.broadinstitute.sting.utils.exceptions.UserException;
 import org.broadinstitute.sting.utils.threading.ThreadPoolMonitor;
 
 import java.util.Collection;
@@ -37,9 +64,14 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
     /**
      * A thread local output tracker for managing output per-thread.
      */
-    private ThreadLocalOutputTracker outputTracker = new ThreadLocalOutputTracker();
+    private ThreadGroupOutputTracker outputTracker = new ThreadGroupOutputTracker();
 
     private final Queue<TreeReduceTask> reduceTasks = new LinkedList<TreeReduceTask>();
+
+    /**
+     * An exception that's occurred in this traversal.  If null, no exception has occurred.
+     */
+    final MultiThreadedErrorTracker errorTracker = new MultiThreadedErrorTracker();
 
     /**
      * Queue of incoming shards.
@@ -71,33 +103,57 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
     /**
      * Create a new hierarchical microscheduler to process the given reads and reference.
      *
-     * @param walker        the walker used to process the dataset.
-     * @param reads         Reads file(s) to process.
-     * @param reference     Reference for driving the traversal.
-     * @param nThreadsToUse maximum number of threads to use to do the work
+     * @param walker           the walker used to process the dataset.
+     * @param reads            Reads file(s) to process.
+     * @param reference        Reference for driving the traversal.
+     * @param threadAllocation How should we apply multi-threaded execution?
      */
-    protected HierarchicalMicroScheduler(GenomeAnalysisEngine engine, Walker walker, SAMDataSource reads, IndexedFastaSequenceFile reference, Collection<ReferenceOrderedDataSource> rods, int nThreadsToUse ) {
-        super(engine, walker, reads, reference, rods);
-        this.threadPool = Executors.newFixedThreadPool(nThreadsToUse);
+    protected HierarchicalMicroScheduler(final GenomeAnalysisEngine engine,
+                                         final Walker walker,
+                                         final SAMDataSource reads,
+                                         final IndexedFastaSequenceFile reference,
+                                         final Collection<ReferenceOrderedDataSource> rods,
+                                         final ThreadAllocation threadAllocation) {
+        super(engine, walker, reads, reference, rods, threadAllocation);
+
+        final int nThreadsToUse = threadAllocation.getNumDataThreads();
+        if ( threadAllocation.monitorThreadEfficiency() ) {
+            throw new UserException.BadArgumentValue("nt", "Cannot monitor thread efficiency with -nt, sorry");
+        }
+
+        this.threadPool = Executors.newFixedThreadPool(nThreadsToUse, new UniqueThreadGroupThreadFactory());
+    }
+
+    /**
+     * Creates threads for HMS each with a unique thread group.  Critical to
+     * track outputs via the ThreadGroupOutputTracker.
+     */
+    private static class UniqueThreadGroupThreadFactory implements ThreadFactory {
+        int counter = 0;
+
+        @Override
+        public Thread newThread(Runnable r) {
+            final ThreadGroup group = new ThreadGroup("HMS-group-" + counter++);
+            return new Thread(group, r);
+        }
     }
 
     public Object execute( Walker walker, Iterable<Shard> shardStrategy ) {
+        super.startingExecution();
+
         // Fast fail for walkers not supporting TreeReducible interface.
         if (!( walker instanceof TreeReducible ))
             throw new IllegalArgumentException("The GATK can currently run in parallel only with TreeReducible walkers");
 
         this.traversalTasks = shardStrategy.iterator();
 
-        ReduceTree reduceTree = new ReduceTree(this);
+        final ReduceTree reduceTree = new ReduceTree(this);
         initializeWalker(walker);
 
-        //
-        // exception handling here is a bit complex.  We used to catch and rethrow exceptions all over
-        // the place, but that just didn't work well.  Now we have a specific execution exception (inner class)
-        // to use for multi-threading specific exceptions.  All RuntimeExceptions that occur within the threads are rethrown
-        // up the stack as their underlying causes
-        //
-        while (isShardTraversePending() || isTreeReducePending()) {
+        while (! abortExecution() && (isShardTraversePending() || isTreeReducePending())) {
+            // Check for errors during execution.
+            errorTracker.throwErrorIfPending();
+
             // Too many files sitting around taking up space?  Merge them.
             if (isMergeLimitExceeded())
                 mergeExistingOutput(false);
@@ -113,6 +169,8 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
                 queueNextShardTraverse(walker, reduceTree);
         }
 
+        errorTracker.throwErrorIfPending();
+
         threadPool.shutdown();
 
         // Merge any lingering output files.  If these files aren't ready,
@@ -123,13 +181,19 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
         try {
             result = reduceTree.getResult().get();
             notifyTraversalDone(walker,result);
+        } catch (ReviewedStingException ex) {
+            throw ex;
+        } catch ( ExecutionException ex ) {
+            // the thread died and we are failing to get the result, rethrow it as a runtime exception
+            throw notifyOfTraversalError(ex.getCause());
+        } catch (Exception ex) {
+            throw new ReviewedStingException("Unable to retrieve result", ex);
         }
-        catch( InterruptedException ex ) { handleException(ex); }
-        catch( ExecutionException ex ) { handleException(ex); }
 
         // do final cleanup operations
         outputTracker.close();
         cleanup();
+        executionIsDone();
 
         return result;
     }
@@ -160,7 +224,6 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
         outputTracker.bypassThreadLocalStorage(true);
         try {
             walker.onTraversalDone(result);
-            printOnTraversalDone(result);
         }
         finally {
             outputTracker.bypassThreadLocalStorage(false);
@@ -229,6 +292,9 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
     protected void mergeExistingOutput( boolean wait ) {
         long startTime = System.currentTimeMillis();
 
+//        logger.warn("MergingExistingOutput");
+//        printOutputMergeTasks();
+
         // Create a list of the merge tasks that will be performed in this run of the mergeExistingOutput().
         Queue<ShardTraverser> mergeTasksInSession = new LinkedList<ShardTraverser>();
         while( !outputMergeTasks.isEmpty() ) {
@@ -242,8 +308,12 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
             mergeTasksInSession.add(traverser);
         }
 
+//        logger.warn("Selected things to merge:");
+//        printOutputMergeTasks(mergeTasksInSession);
+
         // Actually run through, merging the tasks in the working queue.
         for( ShardTraverser traverser: mergeTasksInSession ) {
+            //logger.warn("*** Merging " + traverser.getIntervalsString());
             if( !traverser.isComplete() )
                 traverser.waitForComplete();
 
@@ -276,32 +346,41 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
         if (!traversalTasks.hasNext())
             throw new IllegalStateException("Cannot traverse; no pending traversals exist.");
 
-        Shard shard = traversalTasks.next();
+        final Shard shard = traversalTasks.next();
 
         // todo -- add ownership claim here
 
-        ShardTraverser traverser = new ShardTraverser(this,
-                traversalEngine,
-                walker,
-                shard,
-                outputTracker);
+        final ShardTraverser traverser = new ShardTraverser(this, walker, shard, outputTracker);
 
-        Future traverseResult = threadPool.submit(traverser);
+        final Future traverseResult = threadPool.submit(traverser);
 
         // Add this traverse result to the reduce tree.  The reduce tree will call a callback to throw its entries on the queue.
         reduceTree.addEntry(traverseResult);
         outputMergeTasks.add(traverser);
+
+//        logger.warn("adding merge task");
+//        printOutputMergeTasks();
 
         // No more data?  Let the reduce tree know so it can finish processing what it's got.
         if (!isShardTraversePending())
             reduceTree.complete();
     }
 
+    private synchronized void printOutputMergeTasks() {
+        printOutputMergeTasks(outputMergeTasks);
+    }
+
+    private synchronized void printOutputMergeTasks(final Queue<ShardTraverser> tasks) {
+        logger.info("Output merge tasks " + tasks.size());
+        for ( final ShardTraverser traverser : tasks )
+            logger.info(String.format("\t%s: complete? %b", traverser.getIntervalsString(), traverser.isComplete()));
+    }
+
     /** Pulls the next reduce from the queue and runs it. */
     protected void queueNextTreeReduce( Walker walker ) {
         if (reduceTasks.size() == 0)
             throw new IllegalStateException("Cannot reduce; no pending reduces exist.");
-        TreeReduceTask reducer = reduceTasks.remove();
+        final TreeReduceTask reducer = reduceTasks.remove();
         reducer.setWalker((TreeReducible) walker);
 
         threadPool.submit(reducer);
@@ -309,7 +388,7 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
 
     /** Blocks until a free slot appears in the thread queue. */
     protected void waitForFreeQueueSlot() {
-        ThreadPoolMonitor monitor = new ThreadPoolMonitor();
+        final ThreadPoolMonitor monitor = new ThreadPoolMonitor();
         synchronized (monitor) {
             threadPool.submit(monitor);
             monitor.watch();
@@ -321,51 +400,22 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
      *
      * @return A new, composite future of the result of this reduce.
      */
-    public Future notifyReduce( Future lhs, Future rhs ) {
-        TreeReduceTask reducer = new TreeReduceTask(new TreeReducer(this, lhs, rhs));
+    public Future notifyReduce( final Future lhs, final Future rhs ) {
+        final TreeReduceTask reducer = new TreeReduceTask(new TreeReducer(this, lhs, rhs));
         reduceTasks.add(reducer);
         return reducer;
     }
 
     /**
-     * Handle an exception that occurred in a worker thread as needed by this scheduler.
-     *
-     * The way to use this function in a worker is:
-     *
-     * try { doSomeWork();
-     * catch ( InterruptedException ex ) { hms.handleException(ex); }
-     * catch ( ExecutionException ex ) { hms.handleException(ex); }
-     *
-     * @param ex the exception that occurred in the worker thread
+     * Allows other threads to notify of an error during traversal.
      */
-    protected final void handleException(InterruptedException ex) {
-        throw new HierarchicalMicroScheduler.ExecutionFailure("Hierarchical reduce interrupted", ex);
+    protected synchronized RuntimeException notifyOfTraversalError(Throwable error) {
+        return errorTracker.notifyOfError(error);
     }
-
-    /**
-     * Handle an exception that occurred in a worker thread as needed by this scheduler.
-     *
-     * The way to use this function in a worker is:
-     *
-     * try { doSomeWork();
-     * catch ( InterruptedException ex ) { hms.handleException(ex); }
-     * catch ( ExecutionException ex ) { hms.handleException(ex); }
-     *
-     * @param ex the exception that occurred in the worker thread
-     */
-    protected final void handleException(ExecutionException ex) {
-        if ( ex.getCause() instanceof RuntimeException )
-            // if the cause was a runtime exception that's what we want to send up the stack
-            throw (RuntimeException )ex.getCause();
-        else
-            throw new HierarchicalMicroScheduler.ExecutionFailure("Hierarchical reduce failed", ex);
-    }
-
-
 
     /** A small wrapper class that provides the TreeReducer interface along with the FutureTask semantics. */
     private class TreeReduceTask extends FutureTask {
-        private TreeReducer treeReducer = null;
+        final private TreeReducer treeReducer;
 
         public TreeReduceTask( TreeReducer treeReducer ) {
             super(treeReducer);
@@ -378,17 +428,6 @@ public class HierarchicalMicroScheduler extends MicroScheduler implements Hierar
 
         public boolean isReadyForReduce() {
             return treeReducer.isReadyForReduce();
-        }
-    }
-
-    /**
-     * A specific exception class for HMS-specific failures such as
-     * Interrupted or ExecutionFailures that aren't clearly the fault
-     * of the underlying walker code
-     */
-    public static class ExecutionFailure extends ReviewedStingException {
-        public ExecutionFailure(final String s, final Throwable throwable) {
-            super(s, throwable);
         }
     }
 

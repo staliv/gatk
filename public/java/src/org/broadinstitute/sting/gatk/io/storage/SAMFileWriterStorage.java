@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2009 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.io.storage;
 
@@ -50,7 +50,7 @@ public class SAMFileWriterStorage implements SAMFileWriter, Storage<SAMFileWrite
     private static Logger logger = Logger.getLogger(SAMFileWriterStorage.class);
 
     public SAMFileWriterStorage( SAMFileWriterStub stub ) {
-        this(stub,stub.getSAMFile());   
+        this(stub,stub.getOutputFile());
     }
 
     public SAMFileWriterStorage( SAMFileWriterStub stub, File file ) {
@@ -62,10 +62,11 @@ public class SAMFileWriterStorage implements SAMFileWriter, Storage<SAMFileWrite
         if (stub.getGenerateMD5())
             factory.setCreateMd5File(true);
         // Adjust max records in RAM.
+        // TODO -- this doesn't actually work because of a bug in Picard; do not use until fixed
         if(stub.getMaxRecordsInRam() != null)
             factory.setMaxRecordsInRam(stub.getMaxRecordsInRam());
 
-        if(stub.getSAMFile() != null) {
+        if(stub.getOutputFile() != null) {
             try {
                 this.writer = createBAMWriter(factory,stub.getFileHeader(),stub.isPresorted(),file,stub.getCompressionLevel());
             }
@@ -73,8 +74,8 @@ public class SAMFileWriterStorage implements SAMFileWriter, Storage<SAMFileWrite
                 throw new UserException.CouldNotCreateOutputFile(file,"file could not be created",ex);
             }
         }
-        else if(stub.getSAMOutputStream() != null){
-            this.writer = factory.makeSAMWriter( stub.getFileHeader(), stub.isPresorted(), stub.getSAMOutputStream());
+        else if(stub.getOutputStream() != null){
+            this.writer = factory.makeSAMWriter( stub.getFileHeader(), stub.isPresorted(), stub.getOutputStream());
         }
         else
             throw new UserException("Unable to write to SAM file; neither a target file nor a stream has been specified");

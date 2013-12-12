@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
@@ -78,24 +78,7 @@ public abstract class ParsingMethod {
 
         String argument = matcher.group(1).trim();
 
-        Tags tags = new Tags();
-        if(matcher.group(2) != null) {
-            for(String tag: Utils.split(matcher.group(2),",")) {
-                // Check for presence of an '=' sign, indicating a key-value pair in the tag line.
-                int equalDelimiterPos = tag.indexOf('=');
-                if(equalDelimiterPos >= 0) {
-                    // Sanity check; ensure that there aren't multiple '=' in this key-value pair.
-                    if(tag.indexOf('=',equalDelimiterPos+1) >= 0)
-                        throw new ArgumentException(String.format("Tag %s passed to argument %s is malformed.  Please ensure that " +
-                                                                  "key-value tags are of the form <key>=<value>, and neither key " +
-                                                                  "nor value contain the '=' character", tag, argument));
-                    tags.addKeyValueTag(tag.substring(0,equalDelimiterPos),tag.substring(equalDelimiterPos+1));
-                }
-                else
-                    tags.addPositionalTag(tag);
-
-            }
-        }
+        Tags tags = parseTags(argument, matcher.group(2));
 
         // Find the most appropriate argument definition for the given argument.
         ArgumentDefinition argumentDefinition = definitions.findArgumentDefinition( argument, definitionMatcher );
@@ -103,6 +86,28 @@ public abstract class ParsingMethod {
         // Try to find a matching argument.  If found, label that as the match.  If not found, add the argument
         // with a null definition.
         return new ArgumentMatch(argument,argumentDefinition,position,tags);
+    }
+
+    public static Tags parseTags(String argument, String tagString) {
+        Tags tags = new Tags();
+        if (tagString != null) {
+            for(String tag: Utils.split(tagString, ",")) {
+                // Check for presence of an '=' sign, indicating a key-value pair in the tag line.
+                int equalDelimiterPos = tag.indexOf('=');
+                if(equalDelimiterPos >= 0) {
+                    // Sanity check; ensure that there aren't multiple '=' in this key-value pair.
+                    if(tag.indexOf('=',equalDelimiterPos+1) >= 0)
+                        throw new ArgumentException(String.format("Tag %s passed to argument %s is malformed.  Please ensure that " +
+                                "key-value tags are of the form <key>=<value>, and neither key " +
+                                "nor value contain the '=' character", tag, argument));
+                    tags.addKeyValueTag(tag.substring(0,equalDelimiterPos),tag.substring(equalDelimiterPos+1));
+                }
+                else
+                    tags.addPositionalTag(tag);
+
+            }
+        }
+        return tags;
     }
 
     /**
@@ -115,8 +120,8 @@ public abstract class ParsingMethod {
      */
     private static final String TAG_TEXT = "[\\w\\-\\.\\=]*";
 
-    public static ParsingMethod FullNameParsingMethod = new ParsingMethod(Pattern.compile(String.format("\\s*--(%1$s)(?:\\:(%2$s(?:,%2$s)*))?\\s*",ARGUMENT_TEXT,TAG_TEXT)),
+    public static final ParsingMethod FullNameParsingMethod = new ParsingMethod(Pattern.compile(String.format("\\s*--(%1$s)(?:\\:(%2$s(?:,%2$s)*))?\\s*",ARGUMENT_TEXT,TAG_TEXT)),
                                                                           ArgumentDefinitions.FullNameDefinitionMatcher) {};
-    public static ParsingMethod ShortNameParsingMethod = new ParsingMethod(Pattern.compile(String.format("\\s*-(%1$s)(?:\\:(%2$s(?:,%2$s)*))?\\s*",ARGUMENT_TEXT,TAG_TEXT)),
+    public static final ParsingMethod ShortNameParsingMethod = new ParsingMethod(Pattern.compile(String.format("\\s*-(%1$s)(?:\\:(%2$s(?:,%2$s)*))?\\s*",ARGUMENT_TEXT,TAG_TEXT)),
                                                                            ArgumentDefinitions.ShortNameDefinitionMatcher) {};
 }

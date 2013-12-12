@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.pipeline
 
@@ -42,14 +43,16 @@ import org.broadinstitute.sting.queue.engine.CommandLinePluginManager
 object PipelineTest extends BaseTest with Logging {
 
   private val validationReportsDataLocation = "/humgen/gsa-hpprojects/GATK/validationreports/submitted/"
+  private val md5DB = new MD5DB()
 
-  final val run = System.getProperty("pipeline.run") == "run"
+  /**
+   * All the job runners configured to run PipelineTests at The Broad.
+   */
+  final val allJobRunners = Seq("Lsf706", "GridEngine", "Shell")
 
-  final val allJobRunners = {
-    val commandLinePluginManager = new CommandLinePluginManager
-    commandLinePluginManager.getPlugins.map(commandLinePluginManager.getName(_)).toSeq
-  }
-
+  /**
+   * The default job runners to run.
+   */
   final val defaultJobRunners = Seq("Lsf706", "GridEngine")
 
   /**
@@ -98,7 +101,7 @@ object PipelineTest extends BaseTest with Logging {
       Assert.fail("PipelineTestSpec.name is null")
     println(Utils.dupString('-', 80));
     executeTest(name, pipelineTest.args, pipelineTest.jobQueue, pipelineTest.expectedException, jobRunner)
-    if (run) {
+    if (BaseTest.pipelineTestRunModeIsSet) {
       assertMatchingMD5s(name, pipelineTest.fileMD5s.map{case (file, md5) => new File(runDir(name, jobRunner), file) -> md5}, pipelineTest.parameterize)
       if (pipelineTest.evalSpec != null)
         validateEval(name, pipelineTest.evalSpec, jobRunner)
@@ -111,7 +114,7 @@ object PipelineTest extends BaseTest with Logging {
   private def assertMatchingMD5s(name: String, fileMD5s: Traversable[(File, String)], parameterize: Boolean) {
     var failed = 0
     for ((file, expectedMD5) <- fileMD5s) {
-      val calculatedMD5 = MD5DB.testFileMD5(name, file, expectedMD5, parameterize)
+      val calculatedMD5 = md5DB.testFileMD5(name, "", file, expectedMD5, parameterize).actualMD5
       if (!parameterize && expectedMD5 != "" && expectedMD5 != calculatedMD5)
         failed += 1
     }
@@ -136,7 +139,7 @@ object PipelineTest extends BaseTest with Logging {
     println("    value (min,target,max) table key metric")
     for (validation <- evalSpec.validations) {
       val table = report.getTable(validation.table)
-      val key = table.getPrimaryKeyByData(validation.table +: validation.key.split('.') : _*)
+      val key = table.findRowByData(validation.table +: validation.key.split('.') : _*)
       val value = String.valueOf(table.get(key, validation.metric))
       val inRange = if (value == null) false else validation.inRange(value)
       val flag = if (!inRange) "*" else " "
@@ -167,7 +170,7 @@ object PipelineTest extends BaseTest with Logging {
     if (jobQueue != null)
       command = Utils.appendArray(command, "-jobQueue", jobQueue)
 
-    if (run)
+    if (BaseTest.pipelineTestRunModeIsSet)
       command = Utils.appendArray(command, "-run")
 
     // run the executable
@@ -179,7 +182,7 @@ object PipelineTest extends BaseTest with Logging {
       println("Executing test %s with Queue arguments: %s".format(name, Utils.join(" ",command)))
       CommandLineProgram.start(instance, command)
     } catch {
-      case e =>
+      case e: Exception =>
         gotAnException = true
         if (expectedException != null) {
           // we expect an exception
@@ -221,7 +224,7 @@ object PipelineTest extends BaseTest with Logging {
         try {
           commandLine.shutdown()
         } catch {
-          case _ => /* ignore */
+          case _: Throwable => /* ignore */
         })
     }
   })

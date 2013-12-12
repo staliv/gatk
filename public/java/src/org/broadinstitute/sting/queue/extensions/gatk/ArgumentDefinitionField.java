@@ -1,35 +1,35 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.extensions.gatk;
-
 import net.sf.samtools.BAMIndex;
 import net.sf.samtools.SAMFileWriter;
 import org.broad.tribble.Tribble;
 import org.broadinstitute.sting.commandline.*;
 import org.broadinstitute.sting.gatk.io.stubs.SAMFileWriterArgumentTypeDescriptor;
-import org.broadinstitute.sting.utils.codecs.vcf.VCFWriter;
+import org.broadinstitute.variant.variantcontext.writer.VariantContextWriter;
 
 import java.io.File;
 import java.lang.annotation.Annotation;
@@ -119,9 +119,14 @@ public abstract class ArgumentDefinitionField extends ArgumentField {
         List<ArgumentField> argumentFields = new ArrayList<ArgumentField>();
         for (ArgumentSource argumentSource: parsingEngine.extractArgumentSources(classType))
             if (!argumentSource.isDeprecated()) {
-                Class<?> gatherer = null;
-                if (argumentSource.field.isAnnotationPresent(Gather.class))
-                    gatherer = argumentSource.field.getAnnotation(Gather.class).value();
+                String gatherer = null;
+                if (argumentSource.field.isAnnotationPresent(Gather.class)) {
+                    Gather gather = argumentSource.field.getAnnotation(Gather.class);
+                    if(! "".equals(gather.className()))
+                        gatherer = gather.className();
+                    else
+                        gatherer = gather.value().getName();
+                }
                 for (ArgumentDefinition argumentDefinition: argumentSource.createArgumentDefinitions())
                     argumentFields.addAll(getArgumentFields(argumentDefinition, gatherer));
             }
@@ -130,7 +135,7 @@ public abstract class ArgumentDefinitionField extends ArgumentField {
 
     private static final List<String> intervalFields = Arrays.asList("intervals", "excludeIntervals", "targetIntervals");
 
-    private static List<? extends ArgumentField> getArgumentFields(ArgumentDefinition argumentDefinition, Class<?> gatherer) {
+    private static List<? extends ArgumentField> getArgumentFields(ArgumentDefinition argumentDefinition, String gatherer) {
         if (intervalFields.contains(argumentDefinition.fullName) && argumentDefinition.ioType == ArgumentIOType.INPUT) {
             return Arrays.asList(
                     new IntervalFileArgumentField(argumentDefinition),
@@ -153,12 +158,18 @@ public abstract class ArgumentDefinitionField extends ArgumentField {
             List<ArgumentField> fields = new ArrayList<ArgumentField>();
 
             String gatherClass;
+
+            // one can set the specific gatherer to use by adding @Gather before any output argument.
+            // For example (used to be part of UG):
+            //      @Gather(className = "org.broadinstitute.sting.queue.extensions.gatk.CatVariantsGatherer")
+            //      @Output(doc="File to which variants should be written",required=true)
+            //      protected VariantContextWriter writer = null;
             if (gatherer != null)
-                gatherClass = gatherer.getName();
+                gatherClass = gatherer;
             else if (SAMFileWriter.class.isAssignableFrom(argumentDefinition.argumentType))
                 gatherClass = "BamGatherFunction";
-            else if (VCFWriter.class.isAssignableFrom(argumentDefinition.argumentType))
-                gatherClass = "VcfGatherFunction";
+            else if (VariantContextWriter.class.isAssignableFrom(argumentDefinition.argumentType))
+                gatherClass = "CatVariantsGatherer"; // used to be "VcfGatherFunction";
             else
                 gatherClass = "org.broadinstitute.sting.queue.function.scattergather.SimpleTextGatherFunction";
 
@@ -168,7 +179,7 @@ public abstract class ArgumentDefinitionField extends ArgumentField {
                 fields.add(new SAMFileWriterIndexArgumentField(argumentDefinition));
                 fields.add(new SAMFileWriterMD5ArgumentField(argumentDefinition));
             }
-            else if (VCFWriter.class.isAssignableFrom(argumentDefinition.argumentType)) {
+            else if (VariantContextWriter.class.isAssignableFrom(argumentDefinition.argumentType)) {
                 fields.add(new VCFWriterIndexArgumentField(argumentDefinition));
             }
 
@@ -346,7 +357,7 @@ public abstract class ArgumentDefinitionField extends ArgumentField {
 
         @Override
         protected String getFreezeFields() {
-            return String.format("if (num_threads.isDefined) nCoresRequest = num_threads%n");
+            return String.format("if (num_threads.isDefined) nCoresRequest = num_threads%nif (num_cpu_threads_per_data_thread.isDefined) nCoresRequest = Some(nCoresRequest.getOrElse(1) * num_cpu_threads_per_data_thread.getOrElse(1))%n");
         }
     }
 

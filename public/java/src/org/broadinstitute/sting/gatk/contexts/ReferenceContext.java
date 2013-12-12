@@ -1,33 +1,32 @@
 /*
- * Copyright (c) 2009 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.contexts;
 
 import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
-import net.sf.samtools.util.StringUtil;
 import org.broadinstitute.sting.utils.BaseUtils;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.GenomeLocParser;
@@ -39,10 +38,7 @@ import org.broadinstitute.sting.utils.GenomeLocParser;
  * @author hanna
  * @version 0.1
  */
-
 public class ReferenceContext {
-    final public static boolean UPPERCASE_REFERENCE = true;
-
     /**
      * Facilitates creation of new GenomeLocs.
      */
@@ -59,7 +55,8 @@ public class ReferenceContext {
     final private GenomeLoc window;
 
     /**
-     * The bases in the window around the current locus.  If null, then bases haven't been fetched yet
+     * The bases in the window around the current locus.  If null, then bases haven't been fetched yet.
+     * Bases are always upper cased
      */
     private byte[] basesCache = null;
 
@@ -81,7 +78,7 @@ public class ReferenceContext {
          *
          * @return
          */
-        @Ensures("result != null")
+        @Ensures({"result != null"})
         public byte[] getBases();
     }
 
@@ -146,7 +143,9 @@ public class ReferenceContext {
     private void fetchBasesFromProvider() {
         if ( basesCache == null ) {
             basesCache = basesProvider.getBases();
-            if (UPPERCASE_REFERENCE) StringUtil.toUpperCase(basesCache);
+
+            // must be an assertion that only runs when the bases are fetch to run in a reasonable amount of time
+            assert BaseUtils.isUpperCase(basesCache);
         }
     }
 
@@ -177,7 +176,7 @@ public class ReferenceContext {
      * @return The base at the given locus from the reference.
      */
     public byte getBase() {
-        return getBases()[(int)(locus.getStart() - window.getStart())];
+        return getBases()[(locus.getStart() - window.getStart())];
     }
 
     /**
@@ -194,6 +193,7 @@ public class ReferenceContext {
     /**
      * All the bases in the window from the current base forward to the end of the window.
      */
+    @Ensures({"result != null", "result.length > 0"})
     public byte[] getForwardBases() {
         final byte[] bases = getBases();
         final int mid = locus.getStart() - window.getStart();

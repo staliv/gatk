@@ -1,30 +1,32 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.function
 
 import org.broadinstitute.sting.queue.util._
+import org.broadinstitute.sting.commandline.Argument
 
 /**
  * A command line that will be run in a pipeline.
@@ -32,13 +34,19 @@ import org.broadinstitute.sting.queue.util._
 trait CommandLineFunction extends QFunction with Logging {
   def commandLine: String
 
+  /** Setting the wall time request for DRMAA / run limit for LSF */
+  var wallTime: Option[Long] = None
+  
   /** Upper memory limit */
+  @Argument(doc="Memory limit", required=false)
   var memoryLimit: Option[Double] = None
 
   /** Resident memory limit */
+  @Argument(doc="Resident memory limit", required=false)
   var residentLimit: Option[Double] = None
 
   /** Resident memory request */
+  @Argument(doc="Resident memory request", required=false)
   var residentRequest: Option[Double] = None
 
   /** the number of SMP cores this job wants */
@@ -63,6 +71,9 @@ trait CommandLineFunction extends QFunction with Logging {
     super.copySettingsTo(function)
     function match {
       case commandLineFunction: CommandLineFunction =>
+        if(commandLineFunction.wallTime.isEmpty)
+          commandLineFunction.wallTime = this.wallTime
+        
         if (commandLineFunction.memoryLimit.isEmpty)
           commandLineFunction.memoryLimit = this.memoryLimit
 
@@ -106,6 +117,10 @@ trait CommandLineFunction extends QFunction with Logging {
    * Sets all field values.
    */
   override def freezeFieldValues() {
+   
+    if(wallTime.isEmpty)
+      wallTime = qSettings.jobWalltime
+    
     if (jobQueue == null)
       jobQueue = qSettings.jobQueue
 
@@ -137,11 +152,16 @@ trait CommandLineFunction extends QFunction with Logging {
     if (residentRequest.isEmpty)
       residentRequest = memoryLimit
 
-    if (residentLimit.isEmpty)
-      residentLimit = residentRequest.map( _ * 1.2 )
+    if (residentLimit.isEmpty || residentLimit == residentRequest)
+      residentLimit = residentRequest.map(residentLimitBuffer)
 
     super.freezeFieldValues()
   }
+
+  /**
+   * @return A function that decides how much memory cushion to add to the residentRequest to create the residentLimit
+   */
+  def residentLimitBuffer: (Double => Double) = (1.2 * _)
 
   /**
    * Safely construct a full required command-line argument with consistent quoting, whitespace separation, etc.
@@ -223,7 +243,7 @@ trait CommandLineFunction extends QFunction with Logging {
    */
   protected def conditional( condition: Boolean, param: Any, escape: Boolean = true, format: String = "%s" ): String = {
     if ( condition ) {
-      " %s ".format(formatArgument("", param, "", false, escape, format))
+      " %s ".format(formatArgument("", param, "", spaceSeparated = false, escape = escape, paramFormat = format))
     }
     else {
       ""

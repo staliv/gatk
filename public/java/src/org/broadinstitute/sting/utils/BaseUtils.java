@@ -1,60 +1,101 @@
+/*
+ * Copyright (c) 2012 The Broad Institute
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+ * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 package org.broadinstitute.sting.utils;
 
+import net.sf.samtools.util.StringUtil;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
+import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
+import org.broadinstitute.sting.utils.exceptions.UserException;
+
+import java.util.Arrays;
 
 /**
  * BaseUtils contains some basic utilities for manipulating nucleotides.
  */
 public class BaseUtils {
-    public final static byte A = (byte) 'A';
-    public final static byte C = (byte) 'C';
-    public final static byte G = (byte) 'G';
-    public final static byte T = (byte) 'T';
 
-    public final static byte N = (byte) 'N';
-    public final static byte D = (byte) 'D';
+    public enum Base {
+        A ('A'),
+        C ('C'),
+        G ('G'),
+        T ('T'),
+        N ('N'),
+        D ('D');
 
-    //
-    // todo -- we need a generalized base abstraction using the Base enum.
-    //
+        public byte base;
+
+        private Base(final char base) {
+            this.base = (byte)base;
+        }
+    }
+
+    // todo -- add this to the generalized base abstraction using the Base enum.
     public final static byte[] BASES = {'A', 'C', 'G', 'T'};
     public final static byte[] EXTENDED_BASES = {'A', 'C', 'G', 'T', 'N', 'D'};
 
-    public enum Base {
-        A('A', 0),
-        C('C', 1),
-        G('G', 2),
-        T('T', 3);
-
-        byte b;
-        int index;
-
-        private Base(char base, int index) {
-            this.b = (byte) base;
-            this.index = index;
-        }
-
-        public byte getBase() { return b; }
-
-        public char getBaseAsChar() { return (char) b; }
-
-        public int getIndex() { return index; }
-
-        public boolean sameBase(byte o) { return b == o; }
-
-        public boolean sameBase(char o) { return b == (byte) o; }
-
-        public boolean sameBase(int i) { return index == i; }
+    static private final int[] baseIndexMap = new int[256];
+    static {
+        Arrays.fill(baseIndexMap, -1);
+        baseIndexMap['A'] = Base.A.ordinal();
+        baseIndexMap['a'] = Base.A.ordinal();
+        baseIndexMap['*'] = Base.A.ordinal();    // the wildcard character counts as an A
+        baseIndexMap['C'] = Base.C.ordinal();
+        baseIndexMap['c'] = Base.C.ordinal();
+        baseIndexMap['G'] = Base.G.ordinal();
+        baseIndexMap['g'] = Base.G.ordinal();
+        baseIndexMap['T'] = Base.T.ordinal();
+        baseIndexMap['t'] = Base.T.ordinal();
     }
 
-    // todo -- fix me (enums?)
-    public static final byte DELETION_INDEX = 4;
-    public static final byte NO_CALL_INDEX = 5; // (this is 'N')
-
-    public static int gIndex = BaseUtils.simpleBaseToBaseIndex((byte) 'G');
-    public static int cIndex = BaseUtils.simpleBaseToBaseIndex((byte) 'C');
-    public static int aIndex = BaseUtils.simpleBaseToBaseIndex((byte) 'A');
-    public static int tIndex = BaseUtils.simpleBaseToBaseIndex((byte) 'T');
+    static private final int[] baseIndexWithIupacMap = baseIndexMap.clone();
+    static {
+        baseIndexWithIupacMap['*'] = -1;    // the wildcard character is bad
+        baseIndexWithIupacMap['N'] = Base.N.ordinal();
+        baseIndexWithIupacMap['n'] = Base.N.ordinal();
+        baseIndexWithIupacMap['R'] = Base.N.ordinal();
+        baseIndexWithIupacMap['r'] = Base.N.ordinal();
+        baseIndexWithIupacMap['Y'] = Base.N.ordinal();
+        baseIndexWithIupacMap['y'] = Base.N.ordinal();
+        baseIndexWithIupacMap['M'] = Base.N.ordinal();
+        baseIndexWithIupacMap['m'] = Base.N.ordinal();
+        baseIndexWithIupacMap['K'] = Base.N.ordinal();
+        baseIndexWithIupacMap['k'] = Base.N.ordinal();
+        baseIndexWithIupacMap['W'] = Base.N.ordinal();
+        baseIndexWithIupacMap['w'] = Base.N.ordinal();
+        baseIndexWithIupacMap['S'] = Base.N.ordinal();
+        baseIndexWithIupacMap['s'] = Base.N.ordinal();
+        baseIndexWithIupacMap['B'] = Base.N.ordinal();
+        baseIndexWithIupacMap['b'] = Base.N.ordinal();
+        baseIndexWithIupacMap['D'] = Base.N.ordinal();
+        baseIndexWithIupacMap['d'] = Base.N.ordinal();
+        baseIndexWithIupacMap['H'] = Base.N.ordinal();
+        baseIndexWithIupacMap['h'] = Base.N.ordinal();
+        baseIndexWithIupacMap['V'] = Base.N.ordinal();
+        baseIndexWithIupacMap['v'] = Base.N.ordinal();
+    }
 
     /// In genetics, a transition is a mutation changing a purine to another purine nucleotide (A <-> G) or
     // a pyrimidine to another pyrimidine nucleotide (C <-> T).
@@ -78,10 +119,10 @@ public class BaseUtils {
     }
 
     public static boolean isTransition(byte base1, byte base2) {
-        int b1 = simpleBaseToBaseIndex(base1);
-        int b2 = simpleBaseToBaseIndex(base2);
-        return b1 == 0 && b2 == 2 || b1 == 2 && b2 == 0 ||
-                b1 == 1 && b2 == 3 || b1 == 3 && b2 == 1;
+        final int b1 = simpleBaseToBaseIndex(base1);
+        final int b2 = simpleBaseToBaseIndex(base2);
+        return b1 == Base.A.ordinal() && b2 == Base.G.ordinal() || b1 == Base.G.ordinal() && b2 == Base.A.ordinal() ||
+                b1 == Base.C.ordinal() && b2 == Base.T.ordinal() || b1 == Base.T.ordinal() && b2 == Base.C.ordinal();
     }
 
     public static boolean isTransversion(byte base1, byte base2) {
@@ -97,8 +138,87 @@ public class BaseUtils {
         return simpleBaseToBaseIndex(base1) == simpleBaseToBaseIndex(base2);
     }
 
+    /**
+     * Checks whether to bases are the same in fact ignore ambiguous 'N' bases.
+     *
+     * @param base1 first base to compare.
+     * @param base2 second base to compare.
+     * @return true if {@code base1 == base2} or either is an 'N', false otherwise.
+     */
+    static public boolean basesAreEqualIgnoreAmbiguous(final byte base1, final byte base2) {
+        if (base1 == base2) return true;
+        else if (base1 == 'n' || base1 == 'N' || base2 == 'N' || base2 == 'n') return true;
+        else return false;
+    }
+
+    /**
+     * Compare to base arrays ranges checking whether they contain the same bases.
+     *
+     * <p>
+     *     By default two array have equal bases, i.e. {@code length == 0} results results in {@code true}.
+     * </p>
+     *
+     * @param bases1 first base array to compare.
+     * @param offset1 position of the first base in bases1 to compare.
+     * @param bases2 second base array to compare.
+     * @param offset2 position of the first base in bases2 to compare.
+     * @param length number of bases to compare.
+     *
+     * @throws NullPointerException if {@code bases1} or {@code bases2} is {@code null}.
+     * @throws ArrayIndexOutOfBoundsException if:
+     * <ul>
+     *      <li>{@code offset1} is not within the range [0,{@code bases1.length}) or</li>
+     *     <li>{@code offset2} is not within the range [0,{@code bases2.length}) or</li>
+     *     <li>{@code offset1 + length} is not within the range [0,{@code bases1.length}) or </li>
+     *     <li>{@code offset2 + length} is not within the range [0,{@code bases2.length})</li>
+     * </ul>
+     * @return
+     */
+    static public boolean basesAreEqualIgnoreAmbiguous(final byte[] bases1, final int offset1, final byte[] bases2, final int offset2, final int length) {
+        for (int i = 0; i < length; i++)
+            if (!basesAreEqualIgnoreAmbiguous(bases1[offset1 + i],bases2[offset2 + i])) return false;
+        return true;
+    }
+
     static public boolean extendedBasesAreEqual(byte base1, byte base2) {
         return extendedBaseToBaseIndex(base1) == extendedBaseToBaseIndex(base2);
+    }
+
+    /**
+     * @return true iff the bases array contains at least one instance of base
+     */
+    static public boolean containsBase(final byte[] bases, final byte base) {
+        for ( final byte b : bases ) {
+            if ( b == base )
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean isUpperCase(final byte[] bases) {
+        for ( byte base : bases )
+            if ( ! isUpperCase(base) )
+                return false;
+        return true;
+    }
+
+    public static boolean isUpperCase(final byte base) {
+        return base >= 'A' && base <= 'Z';
+    }
+
+    public static byte[] convertIUPACtoN(final byte[] bases, final boolean errorOnBadReferenceBase, final boolean ignoreConversionOfFirstByte) {
+        final int length = bases.length;
+        final int start = ignoreConversionOfFirstByte ? 1 : 0;
+
+        for ( int i = start; i < length; i++ ) {
+            final int baseIndex = baseIndexWithIupacMap[bases[i]];
+            if ( baseIndex == Base.N.ordinal() ) {
+                bases[i] = 'N';
+            } else if ( errorOnBadReferenceBase && baseIndex == -1 ) {
+                throw new UserException.BadInput("We encountered a non-standard non-IUPAC base in the provided reference: '" + bases[i] + "'");
+            }
+        }
+        return bases;
     }
 
     /**
@@ -170,28 +290,10 @@ public class BaseUtils {
      * @param base [AaCcGgTt]
      * @return 0, 1, 2, 3, or -1 if the base can't be understood
      */
-    static public int simpleBaseToBaseIndex(byte base) {
-        switch (base) {
-            case '*':               // the wildcard character counts as an A
-            case 'A':
-            case 'a':
-                return 0;
-
-            case 'C':
-            case 'c':
-                return 1;
-
-            case 'G':
-            case 'g':
-                return 2;
-
-            case 'T':
-            case 't':
-                return 3;
-
-            default:
-                return -1;
-        }
+    static public int simpleBaseToBaseIndex(final byte base) {
+        if ( base < 0 || base >= 256 )
+            throw new UserException.BadInput("Non-standard bases were encountered in either the input reference or BAM file(s)");
+        return baseIndexMap[base];
     }
 
     /**
@@ -202,37 +304,17 @@ public class BaseUtils {
      */
     @Deprecated
     static public int simpleBaseToBaseIndex(char base) {
-        switch (base) {
-            case '*':               // the wildcard character counts as an A
-            case 'A':
-            case 'a':
-                return 0;
-
-            case 'C':
-            case 'c':
-                return 1;
-
-            case 'G':
-            case 'g':
-                return 2;
-
-            case 'T':
-            case 't':
-                return 3;
-
-            default:
-                return -1;
-        }
+        return baseIndexMap[base];
     }
 
     static public int extendedBaseToBaseIndex(byte base) {
         switch (base) {
             case 'd':
             case 'D':
-                return DELETION_INDEX;
+                return Base.D.ordinal();
             case 'n':
             case 'N':
-                return NO_CALL_INDEX;
+                return Base.N.ordinal();
 
             default:
                 return simpleBaseToBaseIndex(base);
@@ -240,12 +322,19 @@ public class BaseUtils {
     }
 
     @Deprecated
-    static public boolean isRegularBase(char base) {
+    static public boolean isRegularBase( final char base ) {
         return simpleBaseToBaseIndex(base) != -1;
     }
 
-    static public boolean isRegularBase(byte base) {
+    static public boolean isRegularBase( final byte base ) {
         return simpleBaseToBaseIndex(base) != -1;
+    }
+
+    static public boolean isAllRegularBases( final byte[] bases ) {
+        for( final byte base : bases) {
+            if( !isRegularBase(base) ) { return false; }
+        }
+        return true;
     }
 
     static public boolean isNBase(byte base) {
@@ -270,64 +359,6 @@ public class BaseUtils {
                 return 'T';
             default:
                 return '.';
-        }
-    }
-
-    @Deprecated
-    static public char baseIndexToSimpleBaseAsChar(int baseIndex) {
-        return (char) baseIndexToSimpleBase(baseIndex);
-    }
-
-    /**
-     * Converts a base index to a base index representing its cross-talk partner
-     *
-     * @param baseIndex 0, 1, 2, 3
-     * @return 1, 0, 3, 2, or -1 if the index can't be understood
-     */
-    static public int crossTalkPartnerIndex(int baseIndex) {
-        switch (baseIndex) {
-            case 0:
-                return 1; // A -> C
-            case 1:
-                return 0; // C -> A
-            case 2:
-                return 3; // G -> T
-            case 3:
-                return 2; // T -> G
-            default:
-                return -1;
-        }
-    }
-
-    /**
-     * Converts a base to the base representing its cross-talk partner
-     *
-     * @param base [AaCcGgTt]
-     * @return C, A, T, G, or '.' if the base can't be understood
-     */
-    @Deprecated
-    static public char crossTalkPartnerBase(char base) {
-        return (char) baseIndexToSimpleBase(crossTalkPartnerIndex(simpleBaseToBaseIndex(base)));
-    }
-
-    /**
-     * Return the complement of a base index.
-     *
-     * @param baseIndex the base index (0:A, 1:C, 2:G, 3:T)
-     * @return the complementary base index
-     */
-    static public byte complementIndex(int baseIndex) {
-        switch (baseIndex) {
-            case 0:
-                return 3; // a -> t
-            case 1:
-                return 2; // c -> g
-            case 2:
-                return 1; // g -> c
-            case 3:
-                return 0; // t -> a
-            default:
-                return -1; // wtf?
         }
     }
 
@@ -357,7 +388,7 @@ public class BaseUtils {
     }
 
     @Deprecated
-    static public char simpleComplement(char base) {
+    static private char simpleComplement(char base) {
         return (char) simpleComplement((byte) base);
     }
 
@@ -372,22 +403,6 @@ public class BaseUtils {
 
         for (int i = 0; i < bases.length; i++) {
             rcbases[i] = simpleComplement(bases[bases.length - 1 - i]);
-        }
-
-        return rcbases;
-    }
-
-    /**
-     * Complement a byte array of bases (that is, chars casted to bytes, *not* base indices in byte form)
-     *
-     * @param bases the byte array of bases
-     * @return the complement of the base byte array
-     */
-    static public byte[] simpleComplement(byte[] bases) {
-        byte[] rcbases = new byte[bases.length];
-
-        for (int i = 0; i < bases.length; i++) {
-            rcbases[i] = simpleComplement(bases[i]);
         }
 
         return rcbases;
@@ -411,23 +426,6 @@ public class BaseUtils {
     }
 
     /**
-     * Complement a char array of bases
-     *
-     * @param bases the char array of bases
-     * @return the complement of the base char array
-     */
-    @Deprecated
-    static public char[] simpleComplement(char[] bases) {
-        char[] rcbases = new char[bases.length];
-
-        for (int i = 0; i < bases.length; i++) {
-            rcbases[i] = simpleComplement(bases[i]);
-        }
-
-        return rcbases;
-    }
-
-    /**
      * Reverse complement a String of bases.  Preserves ambiguous bases.
      *
      * @param bases the String of bases
@@ -439,14 +437,13 @@ public class BaseUtils {
     }
 
     /**
-     * Complement a String of bases.  Preserves ambiguous bases.
+     * Returns the uppercased version of the bases
      *
-     * @param bases the String of bases
-     * @return the complement of the String
+     * @param bases   the bases
+     * @return the upper cased version
      */
-    @Deprecated
-    static public String simpleComplement(String bases) {
-        return new String(simpleComplement(bases.getBytes()));
+    static public void convertToUpperCase(final byte[] bases) {
+        StringUtil.toUpperCase(bases);
     }
 
     /**
@@ -541,81 +538,25 @@ public class BaseUtils {
         return randomBaseIndex;
     }
 
-    /**
-     * Return a random base (A, C, G, T).
-     *
-     * @return a random base (A, C, G, T)
-     */
-    @Deprecated
-    static public byte getRandomBase() {
-        return getRandomBase('.');
-    }
-
-    /**
-     * Return a random base, excluding some base.
-     *
-     * @param excludeBase the base to exclude
-     * @return a random base, excluding the one specified (A, C, G, T)
-     */
-    @Deprecated
-    static public byte getRandomBase(char excludeBase) {
-        return BaseUtils.baseIndexToSimpleBase(getRandomBaseIndex(BaseUtils.simpleBaseToBaseIndex(excludeBase)));
-    }
-
-    /**
-     * Computes the smallest period >= minPeriod for the specified string. The period is defined as such p,
-     * that for all  i = 0... seq.length-1,  seq[ i % p ] = seq[i] (or equivalently seq[i] = seq[i+p] for i=0...seq.length-1-p).
-     * The sequence does <i>not</i> have to contain whole number of periods. For instance, "ACACACAC" has a period
-     * of 2 (it has a period of 4 as well), and so does
-     * "ACACA"; similarly, smallest periods of "CTCCTC", "CTCCT", and "CTCC" are all equal to 3. The "trivial" period is
-     * the length of the string itself, and it will always be returned if no smaller period can be found in the specified period range
-     * or if specified minPeriod is greater than the sequence length.
-     *
-     * @param seq
-     * @return
-     */
-    public static int sequencePeriod(byte[] seq, int minPeriod) {
-        int period = (minPeriod > seq.length ? seq.length : minPeriod);
-        // we assume that bases [0,period-1] repeat themselves and check this assumption
-        // until we find correct period
-
-        for (int pos = period; pos < seq.length; pos++) {
-
-            int offset = pos % period; // we are currenlty 'offset' bases into the putative repeat of period 'period'
-            // if our current hypothesis holds, base[pos] must be the same as base[offset]
-
-            if (Character.toUpperCase(seq[pos]) != Character.toUpperCase(seq[offset])) {
-
-                // period we have been trying so far does not work.
-                // two possibilities:
-                // A) offset = 0, i.e. current position pos must be start of the next repeat, but it is not;
-                //      in this case only bases from start up to the current one, inclusive, may form a repeat, if at all;
-                //       so period is at least pos+1 (remember, pos is 0-based), then on the next loop re-entrance
-                //      pos will be autoincremented and we will be checking next base
-                // B) offset != 0, i.e. the current base breaks the repeat, but maybe it starts a new one?
-                //     hence we should first check if it matches the first base of the sequence, and to do that
-                //     we set period to pos  (thus trying the hypothesis that bases from start up to the current one,
-                //     non-inclusive are repeated hereafter), and decrement pos (this will re-test current base against the first base
-                // on the next loop re-entrance after pos is autoincremented)
-                if (offset == 0)
-                    period = pos + 1;
-                else
-                    period = pos--;
-
-            }
+    public static byte getComplement(byte base) {
+        switch(base) {
+            case 'a':
+            case 'A':
+                return 'T';
+            case 'c':
+            case 'C':
+                return 'G';
+            case 'g':
+            case 'G':
+                return 'C';
+            case 't':
+            case 'T':
+                return 'A';
+            case 'n':
+            case 'N':
+                return 'N';
+            default:
+                throw new ReviewedStingException("base must be A, C, G or T. " + (char) base + " is not a valid base.");
         }
-        return period;
     }
 }
-
-/* code snippet for testing sequencePeriod():
- * 
- *     	String str = "CCTTG";
-    	int p = 0;
-    	System.out.print("Periods of " + str +" are:");
-    	while ( p < str.length() ) {
-    		p = sequencePeriod(str, p+1);
-        	System.out.print(" "+p);
-    	}
-    	System.out.println(); System.exit(1);
-*/

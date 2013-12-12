@@ -1,41 +1,43 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils;
 
+import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
 import net.sf.samtools.SAMFileHeader;
 import net.sf.samtools.SAMProgramRecord;
-import net.sf.samtools.util.StringUtil;
 import org.apache.log4j.Logger;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.gatk.io.StingSAMFileWriter;
-import org.broadinstitute.sting.utils.collections.Pair;
 import org.broadinstitute.sting.utils.text.TextFormattingUtils;
 
+import java.math.BigInteger;
 import java.net.InetAddress;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 /**
@@ -50,6 +52,17 @@ public class Utils {
     private static Logger logger = Logger.getLogger(Utils.class);
 
     public static final float JAVA_DEFAULT_HASH_LOAD_FACTOR = 0.75f;
+
+    /**
+     * Boolean xor operation.  Only true if x != y.
+     *
+     * @param x a boolean
+     * @param y a boolean
+     * @return true if x != y
+     */
+    public static boolean xor(final boolean x, final boolean y) {
+        return x != y;
+    }
 
     /**
      * Calculates the optimum initial size for a hash table given the maximum number
@@ -73,9 +86,7 @@ public class Utils {
      * @return True if the two objects are equal, false otherwise.
      */
     public static boolean equals(Object lhs, Object rhs) {
-        if (lhs == null && rhs == null) return true;
-        else if (lhs == null) return false;
-        else return lhs.equals(rhs);
+        return lhs == null && rhs == null || lhs != null && lhs.equals(rhs);
     }
 
     public static <T> List<T> cons(final T elt, final List<T> l) {
@@ -112,35 +123,6 @@ public class Utils {
             builder.delete(0, space + 1);
         }
         logger.warn(String.format("* %s", builder));
-    }
-
-    public static ArrayList<Byte> subseq(char[] fullArray) {
-        byte[] fullByteArray = new byte[fullArray.length];
-        StringUtil.charsToBytes(fullArray, 0, fullArray.length, fullByteArray, 0);
-        return subseq(fullByteArray);
-    }
-
-    public static ArrayList<Byte> subseq(byte[] fullArray) {
-        return subseq(fullArray, 0, fullArray.length - 1);
-    }
-
-    public static ArrayList<Byte> subseq(byte[] fullArray, int start, int end) {
-        assert end < fullArray.length;
-        ArrayList<Byte> dest = new ArrayList<Byte>(end - start + 1);
-        for (int i = start; i <= end; i++) {
-            dest.add(fullArray[i]);
-        }
-        return dest;
-    }
-
-    public static String baseList2string(List<Byte> bases) {
-        byte[] basesAsbytes = new byte[bases.size()];
-        int i = 0;
-        for (Byte b : bases) {
-            basesAsbytes[i] = b;
-            i++;
-        }
-        return new String(basesAsbytes);
     }
 
     /**
@@ -223,6 +205,53 @@ public class Utils {
         return ret.toString();
     }
 
+    public static String join(String separator, int[] ints) {
+        if ( ints == null || ints.length == 0)
+            return "";
+        else {
+            StringBuilder ret = new StringBuilder();
+            ret.append(ints[0]);
+            for (int i = 1; i < ints.length; ++i) {
+                ret.append(separator);
+                ret.append(ints[i]);
+            }
+            return ret.toString();
+        }
+    }
+
+    /**
+     * Create a new list that contains the elements of left along with elements elts
+     * @param left a non-null list of elements
+     * @param elts a varargs vector for elts to append in order to left
+     * @return A newly allocated linked list containing left followed by elts
+     */
+    public static <T> List<T> append(final List<T> left, T ... elts) {
+        final List<T> l = new LinkedList<T>(left);
+        l.addAll(Arrays.asList(elts));
+        return l;
+    }
+
+    /**
+     * Returns a string of the values in joined by separator, such as A,B,C
+     *
+     * @param separator separator character
+     * @param doubles   the array with values
+     * @return a string with the values separated by the separator
+     */
+    public static String join(String separator, double[] doubles) {
+        if ( doubles == null || doubles.length == 0)
+            return "";
+        else {
+            StringBuilder ret = new StringBuilder();
+            ret.append(doubles[0]);
+            for (int i = 1; i < doubles.length; ++i) {
+                ret.append(separator);
+                ret.append(doubles[i]);
+            }
+            return ret.toString();
+        }
+    }
+
     /**
      * Returns a string of the form elt1.toString() [sep elt2.toString() ... sep elt.toString()] for a collection of
      * elti objects (note there's no actual space between sep and the elti elements).  Returns
@@ -253,6 +282,26 @@ public class Utils {
         }
     }
 
+    public static <T> String join(final String separator, final T ... objects) {
+        return join(separator, Arrays.asList(objects));
+    }
+
+    /**
+     * Create a new string thats a n duplicate copies of s
+     * @param s the string to duplicate
+     * @param nCopies how many copies?
+     * @return a string
+     */
+    public static String dupString(final String s, int nCopies) {
+        if ( s == null || s.equals("") ) throw new IllegalArgumentException("Bad s " + s);
+        if ( nCopies < 0 ) throw new IllegalArgumentException("nCopies must be >= 0 but got " + nCopies);
+
+        final StringBuilder b = new StringBuilder();
+        for ( int i = 0; i < nCopies; i++ )
+            b.append(s);
+        return b.toString();
+    }
+
     public static String dupString(char c, int nCopies) {
         char[] chars = new char[nCopies];
         Arrays.fill(chars, c);
@@ -279,15 +328,6 @@ public class Utils {
             end--;
 
         return str.substring(start, end+1);
-    }
-
-    public static byte listMaxByte(List<Byte> quals) {
-        if (quals.size() == 0) return 0;
-        byte m = quals.get(0);
-        for (byte b : quals) {
-            m = b > m ? b : m;
-        }
-        return m;
     }
 
     /**
@@ -343,6 +383,24 @@ public class Utils {
     }
 
     /**
+     * Concatenates byte arrays
+     * @return a concat of all bytes in allBytes in order
+     */
+    public static byte[] concat(final byte[] ... allBytes) {
+        int size = 0;
+        for ( final byte[] bytes : allBytes ) size += bytes.length;
+
+        final byte[] c = new byte[size];
+        int offset = 0;
+        for ( final byte[] bytes : allBytes ) {
+            System.arraycopy(bytes, 0, c, offset, bytes.length);
+            offset += bytes.length;
+        }
+
+        return c;
+    }
+
+    /**
      * Appends String(s) B to array A.
      * @param A First array.
      * @param B Strings to append.
@@ -350,173 +408,6 @@ public class Utils {
      */
     public static String[] appendArray(String[] A, String... B) {
         return concatArrays(A, B);
-    }
-
-    /**
-     * Returns indices of all occurrences of the specified symbol in the string
-     * @param s Search string
-     * @param ch Character to search for
-     * @return Indices of all occurrences of the specified symbol
-     */
-    public static int[] indexOfAll(String s, int ch) {
-        int[] pos = new int[64];
-        int z = 0;
-
-        for (int i = 0; i < s.length(); i++) {
-            if (s.charAt(i) == ch) pos[z++] = i;
-        }
-        return reallocate(pos, z);
-    }
-
-    public static int countSetBits(boolean[] array) {
-        int counter = 0;
-        for ( int i = 0; i < array.length; i++ ) {
-            if ( array[i] )
-                counter++;
-        }
-        return counter;
-    }
-
-    /**
-     * Returns new (reallocated) integer array of the specified size, with content
-     * of the original array <code>orig</code> copied into it. If <code>newSize</code> is
-     * less than the size of the original array, only first <code>newSize</code> elements will be copied.
-     * If new size is greater than the size of the original array, the content of the original array will be padded
-     * with zeros up to the new size. Finally, if new size is the same as original size, no memory reallocation
-     * will be performed and the original array will be returned instead.
-     *
-     * @param orig Original size.
-     * @param newSize New Size.
-     *
-     * @return New array with length equal to newSize.
-     */
-    public static int[] reallocate(int[] orig, int newSize) {
-        if (orig.length == newSize) return orig;
-        int[] new_array = new int[newSize];
-        int L = (newSize > orig.length ? orig.length : newSize);
-        for (int i = 0; i < L; i++) new_array[i] = orig[i];
-        return new_array;
-    }
-
-
-    /**
-     * Returns a copy of array a, extended with additional n elements to the right (if n > 0 ) or -n elements to the
-     * left (if n<0), copying the values form the original array. Newly added elements are filled with value v. Note that
-     * if array a is being padded to the left, first (-n) elements of the returned array are v's, followed by the content of
-     * array a.
-     * @param a original array
-     * @param n number of (v-filled) elements to append to a on the right (n>0) or on the left (n<0)
-     * @param v element value
-     * @return the extended copy of array a with additional n elements
-     */
-    public static byte [] extend(final byte[] a, int n, byte v) {
-
-        byte [] newA;
-
-        if ( n > 0 ) {
-            newA = Arrays.copyOf(a, a.length+n);
-            if ( v != 0) { // java pads with 0's for us, so there is nothing to do if v==0
-                for ( int i = a.length; i < newA.length ; i++ ) newA[i] = v;
-            }
-            return newA;
-        }
-
-        // we are here only if n < 0:
-        n = (-n);
-        newA = new byte[ a.length + n ];
-        int i;
-        if ( v!= 0 ) {
-            i = 0;
-            for( ; i < n; i++ ) newA[i] = v;
-        } else {
-            i = n;
-        }
-        for ( int j = 0 ; j < a.length ; i++, j++) newA[i]=a[j];
-        return newA;
-    }
-
-
-    /**
-     * Returns a copy of array a, extended with additional n elements to the right (if n > 0 ) or -n elements to the
-     * left (if n<0), copying the values form the original array. Newly added elements are filled with value v. Note that
-     * if array a is padded to the left, first (-n) elements of the returned array are v's, followed by the content of
-     * array a.
-     * @param a original array
-     * @param n number of (v-filled) elements to append to a on the right (n>0) or on the left (n<0)
-     * @param v element value
-     * @return the extended copy of array a with additional n elements
-     */
-    public static short [] extend(final short[] a, int n, short v) {
-
-        short [] newA;
-
-        if ( n > 0 ) {
-            newA = Arrays.copyOf(a, a.length+n);
-            if ( v != 0) { // java pads with 0's for us, so there is nothing to do if v==0
-                for ( int i = a.length; i < newA.length ; i++ ) newA[i] = v;
-            }
-            return newA;
-        }
-
-        // we are here only if n < 0:
-        n = (-n);
-        newA = new short[ a.length + n ];
-        int i;
-        if ( v!= 0 ) {
-            i = 0;
-            for( ; i < n; i++ ) newA[i] = v;
-        } else {
-            i = n;
-        }
-        for ( int j = 0 ; j < a.length ; i++, j++) newA[i]=a[j];
-        return newA;
-    }
-
-    /* TEST ME
-        public static void main(String[] argv) {
-            List<Integer> l1 = new LinkedList<Integer>();
-            List<Integer> l2 = new ArrayList<Integer>();
-
-            l1.add(1);
-            l1.add(5);
-            l1.add(3);
-            l1.add(10);
-            l1.add(4);
-            l1.add(2);
-            l2.add(1);
-            l2.add(5);
-            l2.add(3);
-            l2.add(10);
-            l2.add(4);
-            l2.add(2);
-
-            Predicate<Integer> p = new Predicate<Integer>() {
-                public boolean apply(Integer i) {
-                    return i > 2;
-                }
-            };
-            filterInPlace(p, l1);
-            filterInPlace(p, l2);
-
-            for ( int i = 0 ; i < l1.size(); i++ ) System.out.print(" "+l1.get(i));
-            System.out.println();
-            for ( int i = 0 ; i < l2.size(); i++ ) System.out.print(" " + l2.get(i));
-            System.out.println();
-
-        }
-
-    */
-
-    /**
-     * a helper method. Turns a single character string into a char.
-     *
-     * @param str the string
-     *
-     * @return a char
-     */
-    public static char stringToChar(String str) {
-        if (str.length() != 1) throw new IllegalArgumentException("String length must be one");
-        return str.charAt(0);
     }
 
     public static <T extends Comparable<T>> List<T> sorted(Collection<T> c) {
@@ -546,19 +437,6 @@ public class Utils {
         return l;
     }
 
-    public static <T extends Comparable<T>, V> String sortedString(Map<T,V> c) {
-        List<T> t = new ArrayList<T>(c.keySet());
-        Collections.sort(t);
-
-        List<V> l = new ArrayList<V>();
-        List<String> pairs = new ArrayList<String>();
-        for ( T k : t ) {
-            pairs.add(k + "=" + c.get(k));
-        }
-
-        return "{" + join(", ", pairs) + "}";
-    }
-
     /**
      * Reverse a byte array of bases
      *
@@ -575,7 +453,7 @@ public class Utils {
         return rcbases;
     }
 
-    static public final <T> List<T> reverse(final List<T> l) {
+    static public <T> List<T> reverse(final List<T> l) {
         final List<T> newL = new ArrayList<T>(l);
         Collections.reverse(newL);
         return newL;
@@ -607,14 +485,6 @@ public class Utils {
         return new String( reverse( bases.getBytes() )) ;
     }
 
-    public static byte[] charSeq2byteSeq(char[] seqIn) {
-        byte[] seqOut = new byte[seqIn.length];
-        for ( int i = 0; i < seqIn.length; i++ ) {
-            seqOut[i] = (byte)seqIn[i];
-        }
-        return seqOut;
-    }
-
     public static boolean isFlagSet(int value, int flag) {
         return ((value & flag) == flag);
     }
@@ -622,10 +492,8 @@ public class Utils {
     /**
      * Helper utility that calls into the InetAddress system to resolve the hostname.  If this fails,
      * unresolvable gets returned instead.
-     *
-     * @return
      */
-    public static final String resolveHostname() {
+    public static String resolveHostname() {
         try {
             return InetAddress.getLocalHost().getCanonicalHostName();
         }
@@ -648,23 +516,67 @@ public class Utils {
             array[i] = value;
     }
 
-    public static void setupWriter(StingSAMFileWriter writer, GenomeAnalysisEngine toolkit, boolean preSorted, boolean KEEP_ALL_PG_RECORDS, Object walker, String PROGRAM_RECORD_NAME) {
-        final SAMProgramRecord programRecord = createProgramRecord(toolkit, walker, PROGRAM_RECORD_NAME);
-
-        SAMFileHeader header = toolkit.getSAMFileHeader();
-        List<SAMProgramRecord> oldRecords = header.getProgramRecords();
-        List<SAMProgramRecord> newRecords = new ArrayList<SAMProgramRecord>(oldRecords.size()+1);
+    /**
+     * Creates a program record for the program, adds it to the list of program records (@PG tags) in the bam file and sets
+     * up the writer with the header and presorted status.
+     *
+     * @param originalHeader      original header
+     * @param programRecord       the program record for this program
+     */
+    public static SAMFileHeader setupWriter(final SAMFileHeader originalHeader, final SAMProgramRecord programRecord) {
+        final SAMFileHeader header = originalHeader.clone();
+        final List<SAMProgramRecord> oldRecords = header.getProgramRecords();
+        final List<SAMProgramRecord> newRecords = new ArrayList<SAMProgramRecord>(oldRecords.size()+1);
         for ( SAMProgramRecord record : oldRecords )
-            if ( !record.getId().startsWith(PROGRAM_RECORD_NAME) || KEEP_ALL_PG_RECORDS )
+            if ( (programRecord != null && !record.getId().startsWith(programRecord.getId())))
                 newRecords.add(record);
 
-        newRecords.add(programRecord);
-        header.setProgramRecords(newRecords);
+        if (programRecord != null) {
+            newRecords.add(programRecord);
+            header.setProgramRecords(newRecords);
+        }
+        return header;
+    }
 
+    /**
+    * Creates a program record for the program, adds it to the list of program records (@PG tags) in the bam file and returns
+    * the new header to be added to the BAM writer.
+    *
+    * @param toolkit             the engine
+    * @param walker              the walker object (so we can extract the command line)
+    * @param PROGRAM_RECORD_NAME the name for the PG tag
+    * @return a pre-filled header for the bam writer
+    */
+    public static SAMFileHeader setupWriter(final GenomeAnalysisEngine toolkit, final SAMFileHeader originalHeader, final Object walker, final String PROGRAM_RECORD_NAME) {
+        final SAMProgramRecord programRecord = createProgramRecord(toolkit, walker, PROGRAM_RECORD_NAME);
+        return setupWriter(originalHeader, programRecord);
+    }
+
+    /**
+     * Creates a program record for the program, adds it to the list of program records (@PG tags) in the bam file and sets
+     * up the writer with the header and presorted status.
+     *
+     * @param writer              BAM file writer
+     * @param toolkit             the engine
+     * @param preSorted           whether or not the writer can assume reads are going to be added are already sorted
+     * @param walker              the walker object (so we can extract the command line)
+     * @param PROGRAM_RECORD_NAME the name for the PG tag
+     */
+    public static void setupWriter(StingSAMFileWriter writer, GenomeAnalysisEngine toolkit, SAMFileHeader originalHeader, boolean preSorted, Object walker, String PROGRAM_RECORD_NAME) {
+        SAMFileHeader header = setupWriter(toolkit, originalHeader, walker, PROGRAM_RECORD_NAME);
         writer.writeHeader(header);
         writer.setPresorted(preSorted);
     }
-    
+
+
+    /**
+     * Creates a program record (@PG) tag
+     *
+     * @param toolkit             the engine
+     * @param walker              the walker object (so we can extract the command line)
+     * @param PROGRAM_RECORD_NAME the name for the PG tag
+     * @return a program record for the tool
+     */
     public static SAMProgramRecord createProgramRecord(GenomeAnalysisEngine toolkit, Object walker, String PROGRAM_RECORD_NAME) {
         final SAMProgramRecord programRecord = new SAMProgramRecord(PROGRAM_RECORD_NAME);
         final ResourceBundle headerInfo = TextFormattingUtils.loadResourceBundle("StingText");
@@ -678,23 +590,11 @@ public class Utils {
         return programRecord;
     }
 
-    public static <E> Collection<E> makeCollection(Iterable<E> iter) {
-        Collection<E> list = new ArrayList<E>();
-        for (E item : iter) {
-            list.add(item);
-        }
-        return list;
-    }
-
     /**
      * Returns the number of combinations represented by this collection
      * of collection of options.
      *
      * For example, if this is [[A, B], [C, D], [E, F, G]] returns 2 * 2 * 3 = 12
-     *
-     * @param options
-     * @param <T>
-     * @return
      */
     @Requires("options != null")
     public static <T> int nCombinations(final Collection<T>[] options) {
@@ -716,6 +616,37 @@ public class Utils {
             }
             return nStates;
         }
+    }
+
+    /**
+     * Make all combinations of N size of objects
+     *
+     * if objects = [A, B, C]
+     * if N = 1 => [[A], [B], [C]]
+     * if N = 2 => [[A, A], [B, A], [C, A], [A, B], [B, B], [C, B], [A, C], [B, C], [C, C]]
+     *
+     * @param objects         list of objects
+     * @param n               size of each combination
+     * @param withReplacement if false, the resulting permutations will only contain unique objects from objects
+     * @return a list with all combinations with size n of objects.
+     */
+    public static <T> List<List<T>> makePermutations(final List<T> objects, final int n, final boolean withReplacement) {
+        final List<List<T>> combinations = new ArrayList<List<T>>();
+
+        if ( n == 1 ) {
+            for ( final T o : objects )
+                combinations.add(Collections.singletonList(o));
+        } else if (n > 1) {
+            final List<List<T>> sub = makePermutations(objects, n - 1, withReplacement);
+            for ( List<T> subI : sub ) {
+                for ( final T a : objects ) {
+                    if ( withReplacement || ! subI.contains(a) )
+                        combinations.add(Utils.cons(a, subI));
+                }
+            }
+        }
+
+        return combinations;
     }
 
     /**
@@ -752,10 +683,37 @@ public class Utils {
     }
 
     /**
+     * Adds element from an array into a collection.
+     *
+     * In the event of exception being throw due to some element, <code>dest</code> might have been modified by
+     * the successful addition of element before that one.
+     *
+     * @param dest the destination collection which cannot be <code>null</code> and should be able to accept
+     *             the input elements.
+     * @param elements the element to add to <code>dest</code>
+     * @param <T>  collection type element.
+     * @throws UnsupportedOperationException if the <tt>add</tt> operation
+     *         is not supported by <code>dest</code>.
+     * @throws ClassCastException if the class of any of the elements
+     *         prevents it from being added to <code>dest</code>.
+     * @throws NullPointerException if any of the elements is <code>null</code> and <code>dest</code>
+     *         does not permit <code>null</code> elements
+     * @throws IllegalArgumentException if some property of any of the elements
+     *         prevents it from being added to this collection
+     * @throws IllegalStateException if any of the elements cannot be added at this
+     *         time due to insertion restrictions.
+     * @return <code>true</code> if the collection was modified as a result.
+     */
+    public static <T> boolean addAll(Collection<T> dest, T ... elements) {
+        boolean result = false;
+        for (final T e : elements) {
+            result = dest.add(e) | result;
+        }
+        return result;
+    }
+
+    /**
      * Create a constant map that maps each value in values to itself
-     * @param values
-     * @param <T>
-     * @return
      */
     public static <T> Map<T, T> makeIdentityFunctionMap(Collection<T> values) {
         Map<T,T> map = new HashMap<T, T>(values.size());
@@ -764,4 +722,134 @@ public class Utils {
         return Collections.unmodifiableMap(map);
     }
 
+    /**
+     * Divides the input list into a list of sublists, which contains group size elements (except potentially the last one)
+     *
+     * list = [A, B, C, D, E]
+     * groupSize = 2
+     * result = [[A, B], [C, D], [E]]
+     *
+     */
+    public static <T> List<List<T>> groupList(final List<T> list, final int groupSize) {
+        if ( groupSize < 1 ) throw new IllegalArgumentException("groupSize >= 1");
+
+        final List<List<T>> subLists = new LinkedList<List<T>>();
+        int n = list.size();
+        for ( int i = 0; i < n; i += groupSize ) {
+            subLists.add(list.subList(i, Math.min(i + groupSize, n)));
+        }
+        return subLists;
+    }
+
+    /**
+     * @see #calcMD5(byte[])
+     */
+    public static String calcMD5(final String s) {
+        return calcMD5(s.getBytes());
+    }
+
+    /**
+     * Calculate the md5 for bytes, and return the result as a 32 character string
+     *
+     * @param bytes the bytes to calculate the md5 of
+     * @return the md5 of bytes, as a 32-character long string
+     */
+    @Ensures({"result != null", "result.length() == 32"})
+    public static String calcMD5(final byte[] bytes) {
+        if ( bytes == null ) throw new IllegalArgumentException("bytes cannot be null");
+        try {
+            final byte[] thedigest = MessageDigest.getInstance("MD5").digest(bytes);
+            final BigInteger bigInt = new BigInteger(1, thedigest);
+
+            String md5String = bigInt.toString(16);
+            while (md5String.length() < 32) md5String = "0" + md5String; // pad to length 32
+            return md5String;
+        }
+        catch ( NoSuchAlgorithmException e ) {
+            throw new IllegalStateException("MD5 digest algorithm not present");
+        }
+    }
+
+    /**
+     * Does big end with the exact sequence of bytes in suffix?
+     *
+     * @param big a non-null byte[] to test if it a prefix + suffix
+     * @param suffix a non-null byte[] to test if it's a suffix of big
+     * @return true if big is proper byte[] composed of some prefix + suffix
+     */
+    public static boolean endsWith(final byte[] big, final byte[] suffix) {
+        if ( big == null ) throw new IllegalArgumentException("big cannot be null");
+        if ( suffix == null ) throw new IllegalArgumentException("suffix cannot be null");
+        return new String(big).endsWith(new String(suffix));
+    }
+
+    /**
+     * Get the length of the longest common prefix of seq1 and seq2
+     * @param seq1 non-null byte array
+     * @param seq2 non-null byte array
+     * @param maxLength the maximum allowed length to return
+     * @return the length of the longest common prefix of seq1 and seq2, >= 0
+     */
+    public static int longestCommonPrefix(final byte[] seq1, final byte[] seq2, final int maxLength) {
+        if ( seq1 == null ) throw new IllegalArgumentException("seq1 is null");
+        if ( seq2 == null ) throw new IllegalArgumentException("seq2 is null");
+        if ( maxLength < 0 ) throw new IllegalArgumentException("maxLength < 0 " + maxLength);
+
+        final int end = Math.min(seq1.length, Math.min(seq2.length, maxLength));
+        for ( int i = 0; i < end; i++ ) {
+            if ( seq1[i] != seq2[i] )
+                return i;
+        }
+        return end;
+    }
+
+    /**
+     * Get the length of the longest common suffix of seq1 and seq2
+     * @param seq1 non-null byte array
+     * @param seq2 non-null byte array
+     * @param maxLength the maximum allowed length to return
+     * @return the length of the longest common suffix of seq1 and seq2, >= 0
+     */
+    public static int longestCommonSuffix(final byte[] seq1, final byte[] seq2, final int maxLength) {
+        if ( seq1 == null ) throw new IllegalArgumentException("seq1 is null");
+        if ( seq2 == null ) throw new IllegalArgumentException("seq2 is null");
+        if ( maxLength < 0 ) throw new IllegalArgumentException("maxLength < 0 " + maxLength);
+
+        final int end = Math.min(seq1.length, Math.min(seq2.length, maxLength));
+        for ( int i = 0; i < end; i++ ) {
+            if ( seq1[seq1.length - i - 1] != seq2[seq2.length - i - 1] )
+                return i;
+        }
+        return end;
+    }
+
+    /**
+     * Trim any number of bases from the front and/or back of an array
+     *
+     * @param seq                the sequence to trim
+     * @param trimFromFront      how much to trim from the front
+     * @param trimFromBack       how much to trim from the back
+     * @return a non-null array; can be the original array (i.e. not a copy)
+     */
+    public static byte[] trimArray(final byte[] seq, final int trimFromFront, final int trimFromBack) {
+        if ( trimFromFront + trimFromBack > seq.length )
+            throw new IllegalArgumentException("trimming total is larger than the original array");
+
+        // don't perform array copies if we need to copy everything anyways
+        return  ( trimFromFront == 0 && trimFromBack == 0 ) ? seq : Arrays.copyOfRange(seq, trimFromFront, seq.length - trimFromBack);
+    }
+
+    /**
+     * Simple wrapper for sticking elements of a int[] array into a List<Integer>
+     * @param ar - the array whose elements should be listified
+     * @return - a List<Integer> where each element has the same value as the corresponding index in @ar
+     */
+    public static List<Integer> listFromPrimitives(final int[] ar) {
+        final ArrayList<Integer> lst = new ArrayList<>(ar.length);
+        for ( final int d : ar ) {
+            lst.add(d);
+        }
+
+        return lst;
+    }
 }

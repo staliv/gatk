@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
@@ -46,7 +46,7 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
     /**
      * Maps indices of command line arguments to values paired with that argument.
      */
-    public final SortedMap<ArgumentMatchSite,List<String>> sites = new TreeMap<ArgumentMatchSite,List<String>>();
+    public final SortedMap<ArgumentMatchSite,List<ArgumentMatchValue>> sites = new TreeMap<ArgumentMatchSite,List<ArgumentMatchValue>>();
 
     /**
      * An ordered, freeform collection of tags.
@@ -90,11 +90,11 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
      * @param value Value for the argument at this position.
      * @param tags ordered freeform text tags associated with this argument.
      */
-    private ArgumentMatch(final String label, final ArgumentDefinition definition, final ArgumentMatchSite site, final String value, final Tags tags) {
+    private ArgumentMatch(final String label, final ArgumentDefinition definition, final ArgumentMatchSite site, final ArgumentMatchValue value, final Tags tags) {
         this.label = label;
         this.definition = definition;
 
-        ArrayList<String> values = new ArrayList<String>();
+        ArrayList<ArgumentMatchValue> values = new ArrayList<ArgumentMatchValue>();
         if( value != null )
             values.add(value);
         sites.put(site,values );
@@ -131,11 +131,11 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
      */
     @SuppressWarnings("unchecked")
     ArgumentMatch transform(Multiplexer multiplexer, Object key) {
-        SortedMap<ArgumentMatchSite,List<String>> newIndices = new TreeMap<ArgumentMatchSite,List<String>>();
-        for(Map.Entry<ArgumentMatchSite,List<String>> site: sites.entrySet()) {
-            List<String> newEntries = new ArrayList<String>();
-            for(String entry: site.getValue())
-                newEntries.add(multiplexer.transformArgument(key,entry));
+        SortedMap<ArgumentMatchSite,List<ArgumentMatchValue>> newIndices = new TreeMap<ArgumentMatchSite,List<ArgumentMatchValue>>();
+        for(Map.Entry<ArgumentMatchSite,List<ArgumentMatchValue>> site: sites.entrySet()) {
+            List<ArgumentMatchValue> newEntries = new ArrayList<ArgumentMatchValue>();
+            for(ArgumentMatchValue entry: site.getValue())
+                newEntries.add(new ArgumentMatchStringValue(multiplexer.transformArgument(key,entry.asString())));
             newIndices.put(site.getKey(),newEntries);
         }
         ArgumentMatch newArgumentMatch = new ArgumentMatch(label,definition);
@@ -165,7 +165,7 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
             /**
              * Iterate over each available token.
              */
-            private Iterator<String> tokenIterator = null;
+            private Iterator<ArgumentMatchValue> tokenIterator = null;
 
             /**
              * The next site to return.  Null if none remain.
@@ -175,7 +175,7 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
             /**
              * The next token to return.  Null if none remain.
              */
-            String nextToken = null;
+            ArgumentMatchValue nextToken = null;
 
             {
                 siteIterator = sites.keySet().iterator();
@@ -254,9 +254,9 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
      * @param site site of the command-line argument to which this value is mated.
      * @param value Text representation of value to add.
      */
-    public void addValue( ArgumentMatchSite site, String value ) {
+    public void addValue( ArgumentMatchSite site, ArgumentMatchValue value ) {
         if( !sites.containsKey(site) || sites.get(site) == null )
-            sites.put(site, new ArrayList<String>() );
+            sites.put(site, new ArrayList<ArgumentMatchValue>() );
         sites.get(site).add(value);
     }
 
@@ -275,11 +275,11 @@ public class ArgumentMatch implements Iterable<ArgumentMatch> {
      * Return the values associated with this argument match.
      * @return A collection of the string representation of these value.
      */
-    public List<String> values() {
-        List<String> values = new ArrayList<String>();
-        for( ArgumentMatchSite site: sites.keySet() ) {
-            if( sites.get(site) != null )
-                values.addAll(sites.get(site));
+    public List<ArgumentMatchValue> values() {
+        final List<ArgumentMatchValue> values = new ArrayList<ArgumentMatchValue>();
+        for ( final List<ArgumentMatchValue> siteValue : sites.values() ) {
+            if ( siteValue != null )
+                values.addAll(siteValue);
         }
         return values;
     }

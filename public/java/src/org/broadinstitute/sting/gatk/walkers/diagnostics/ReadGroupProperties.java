@@ -1,38 +1,42 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.diagnostics;
 
 import net.sf.samtools.SAMReadGroupRecord;
 import org.broadinstitute.sting.commandline.Argument;
 import org.broadinstitute.sting.commandline.Output;
+import org.broadinstitute.sting.gatk.CommandLineGATK;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
-import org.broadinstitute.sting.gatk.refdata.ReadMetaDataTracker;
+import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
 import org.broadinstitute.sting.gatk.report.GATKReport;
 import org.broadinstitute.sting.gatk.report.GATKReportTable;
 import org.broadinstitute.sting.gatk.walkers.ReadWalker;
 import org.broadinstitute.sting.utils.Median;
+import org.broadinstitute.sting.utils.help.DocumentedGATKFeature;
+import org.broadinstitute.sting.utils.help.HelpConstants;
 import org.broadinstitute.sting.utils.sam.GATKSAMRecord;
 
 import java.io.PrintStream;
@@ -49,12 +53,12 @@ import java.util.Map;
  * the median statistics are well determined.  It is safe to run it WG and it'll finish in an appropriate
  * timeframe.
  *
- * <h2>Input</h2>
+ * <h3>Input</h3>
  *  <p>
  *      Any number of BAM files
  *  </p>
  *
- * <h2>Output</h2>
+ * <h3>Output</h3>
  *  <p>
  *      GATKReport containing read group, sample, library, platform, center, median insert size and median read length.
  *
@@ -82,7 +86,7 @@ import java.util.Map;
  *      </pre>
  *  </p>
  *
- * <h2>Examples</h2>
+ * <h3>Examples</h3>
  *  <pre>
  *    java
  *      -jar GenomeAnalysisTK.jar
@@ -94,6 +98,7 @@ import java.util.Map;
  *
  * @author Mark DePristo
  */
+@DocumentedGATKFeature( groupName = HelpConstants.DOCS_CAT_QC, extraDocs = {CommandLineGATK.class} )
 public class ReadGroupProperties extends ReadWalker<Integer, Integer> {
     @Output
     public PrintStream out;
@@ -137,7 +142,7 @@ public class ReadGroupProperties extends ReadWalker<Integer, Integer> {
     }
 
     @Override
-    public Integer map(ReferenceContext referenceContext, GATKSAMRecord read, ReadMetaDataTracker readMetaDataTracker) {
+    public Integer map(ReferenceContext referenceContext, GATKSAMRecord read, RefMetaDataTracker RefMetaDataTracker) {
         final String rgID = read.getReadGroup().getId();
         final PerReadGroupInfo info = readGroupInfo.get(rgID);
 
@@ -168,27 +173,28 @@ public class ReadGroupProperties extends ReadWalker<Integer, Integer> {
     @Override
     public void onTraversalDone(Integer sum) {
         final GATKReport report = new GATKReport();
-        report.addTable(TABLE_NAME, "Table of read group properties");
+        report.addTable(TABLE_NAME, "Table of read group properties", 12);
         GATKReportTable table = report.getTable(TABLE_NAME);
         DateFormat dateFormatter = DateFormat.getDateInstance(DateFormat.SHORT);
 
-        table.addPrimaryKey("readgroup");
+        table.addColumn("readgroup");
         //* Emits a GATKReport containing read group, sample, library, platform, center, median insert size and
         //* median read length for each read group in every BAM file.
-        table.addColumn("sample", "NA");
-        table.addColumn("library", "NA");
-        table.addColumn("platform", "NA");
-        table.addColumn("center", "NA");
-        table.addColumn("date", "NA");
-        table.addColumn("has.any.reads", "false");
-        table.addColumn("is.paired.end", "false");
-        table.addColumn("n.reads.analyzed", "NA");
-        table.addColumn("simple.read.type", "NA");
-        table.addColumn("median.read.length", Integer.valueOf(0));
-        table.addColumn("median.insert.size", Integer.valueOf(0));
+        table.addColumn("sample", "%s");
+        table.addColumn("library", "%s");
+        table.addColumn("platform", "%s");
+        table.addColumn("center", "%s");
+        table.addColumn("date", "%s");
+        table.addColumn("has.any.reads");
+        table.addColumn("is.paired.end");
+        table.addColumn("n.reads.analyzed", "%d");
+        table.addColumn("simple.read.type", "%s");
+        table.addColumn("median.read.length");
+        table.addColumn("median.insert.size");
 
         for ( final SAMReadGroupRecord rg : getToolkit().getSAMFileHeader().getReadGroups() ) {
             final String rgID = rg.getId();
+            table.addRowID(rgID, true);
             PerReadGroupInfo info = readGroupInfo.get(rgID);
 
             // we are paired if > 25% of reads are paired

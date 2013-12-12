@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.varianteval.util;
 
@@ -28,29 +29,27 @@ import org.apache.log4j.Logger;
 import org.broadinstitute.sting.commandline.RodBinding;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
-import org.broadinstitute.sting.gatk.report.GATKReport;
-import org.broadinstitute.sting.gatk.report.GATKReportTable;
-import org.broadinstitute.sting.gatk.walkers.varianteval.VariantEvalWalker;
+import org.broadinstitute.sting.gatk.walkers.varianteval.VariantEval;
 import org.broadinstitute.sting.gatk.walkers.varianteval.evaluators.StandardEval;
 import org.broadinstitute.sting.gatk.walkers.varianteval.evaluators.VariantEvaluator;
 import org.broadinstitute.sting.gatk.walkers.varianteval.stratifications.RequiredStratification;
 import org.broadinstitute.sting.gatk.walkers.varianteval.stratifications.StandardStratification;
 import org.broadinstitute.sting.gatk.walkers.varianteval.stratifications.VariantStratifier;
 import org.broadinstitute.sting.utils.classloader.PluginManager;
+import org.broadinstitute.variant.vcf.VCFConstants;
 import org.broadinstitute.sting.utils.exceptions.StingException;
 import org.broadinstitute.sting.utils.exceptions.UserException;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
-import org.broadinstitute.sting.utils.variantcontext.VariantContextBuilder;
-import org.broadinstitute.sting.utils.variantcontext.VariantContextUtils;
+import org.broadinstitute.variant.variantcontext.VariantContext;
+import org.broadinstitute.variant.variantcontext.VariantContextBuilder;
+import org.broadinstitute.variant.variantcontext.VariantContextUtils;
 
-import java.lang.reflect.Field;
 import java.util.*;
 
 public class VariantEvalUtils {
-    private final VariantEvalWalker variantEvalWalker;
+    private final VariantEval variantEvalWalker;
     Logger logger;
 
-    public VariantEvalUtils(VariantEvalWalker variantEvalWalker) {
+    public VariantEvalUtils(VariantEval variantEvalWalker) {
         this.variantEvalWalker = variantEvalWalker;
         this.logger = variantEvalWalker.getLogger();
     }
@@ -199,18 +198,34 @@ public class VariantEvalUtils {
      * @return a new VariantContext with just the requested samples
      */
     public VariantContext getSubsetOfVariantContext(VariantContext vc, Set<String> sampleNames) {
-        VariantContext vcsub = vc.subContextFromSamples(sampleNames, vc.getAlleles());
-        VariantContextBuilder builder = new VariantContextBuilder(vcsub);
+        // if we want to preserve AC0 sites as polymorphic we need to not rederive alleles
+        final boolean deriveAlleles = variantEvalWalker.ignoreAC0Sites();
+        return ensureAnnotations(vc, vc.subContextFromSamples(sampleNames, deriveAlleles));
+    }
 
+    public VariantContext ensureAnnotations(final VariantContext vc, final VariantContext vcsub) {
         final int originalAlleleCount = vc.getHetCount() + 2 * vc.getHomVarCount();
         final int newAlleleCount = vcsub.getHetCount() + 2 * vcsub.getHomVarCount();
+        final boolean isSingleton = originalAlleleCount == newAlleleCount && newAlleleCount == 1;
+        final boolean hasChrCountAnnotations = vcsub.hasAttribute(VCFConstants.ALLELE_COUNT_KEY) &&
+                vcsub.hasAttribute(VCFConstants.ALLELE_FREQUENCY_KEY) &&
+                vcsub.hasAttribute(VCFConstants.ALLELE_NUMBER_KEY);
 
-        if (originalAlleleCount == newAlleleCount && newAlleleCount == 1) {
-            builder.attribute(VariantEvalWalker.IS_SINGLETON_KEY, true);
+        if ( ! isSingleton && hasChrCountAnnotations ) {
+            // nothing to update
+            return vcsub;
+        } else {
+            // have to do the work
+            VariantContextBuilder builder = new VariantContextBuilder(vcsub);
+
+            if ( isSingleton )
+                builder.attribute(VariantEval.IS_SINGLETON_KEY, true);
+
+            if ( ! hasChrCountAnnotations )
+                VariantContextUtils.calculateChromosomeCounts(builder, true);
+
+            return builder.make();
         }
-
-        VariantContextUtils.calculateChromosomeCounts(builder, true);
-        return builder.make();
     }
 
     /**
@@ -250,12 +265,11 @@ public class VariantEvalUtils {
                 // First, filter the VariantContext to represent only the samples for evaluation
                 VariantContext vcsub = vc;
 
-                if (subsetBySample && vc.hasGenotypes() && vc.hasGenotypes(variantEvalWalker.getSampleNamesForEvaluation())) {
+                if (subsetBySample && vc.hasGenotypes())
                     vcsub = getSubsetOfVariantContext(vc, variantEvalWalker.getSampleNamesForEvaluation());
-                }
 
                 if ((byFilter || !vcsub.isFiltered())) {
-                    addMapping(mapping, VariantEvalWalker.getAllSampleName(), vcsub);
+                    addMapping(mapping, VariantEval.getAllSampleName(), vcsub);
                 }
 
                 // Now, if stratifying, split the subsetted vc per sample and add each as a new context

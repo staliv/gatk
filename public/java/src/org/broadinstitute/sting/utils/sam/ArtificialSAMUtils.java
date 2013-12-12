@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils.sam;
 
 import net.sf.samtools.*;
@@ -5,6 +30,7 @@ import org.broadinstitute.sting.gatk.iterators.StingSAMIterator;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.Utils;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
+import org.broadinstitute.sting.utils.locusiterator.LocusIteratorByState;
 import org.broadinstitute.sting.utils.pileup.PileupElement;
 import org.broadinstitute.sting.utils.pileup.ReadBackedPileup;
 import org.broadinstitute.sting.utils.pileup.ReadBackedPileupImpl;
@@ -87,6 +113,27 @@ public class ArtificialSAMUtils {
         }
         header.setSequenceDictionary(dict);
         return header;
+    }
+
+    /**
+     * Creates an artificial sam header based on the sequence dictionary dict
+     *
+     * @return a new sam header
+     */
+    public static SAMFileHeader createArtificialSamHeader(final SAMSequenceDictionary dict) {
+        SAMFileHeader header = new SAMFileHeader();
+        header.setSortOrder(net.sf.samtools.SAMFileHeader.SortOrder.coordinate);
+        header.setSequenceDictionary(dict);
+        return header;
+    }
+
+    /**
+     * Creates an artificial sam header with standard test parameters
+     *
+     * @return the sam header
+     */
+    public static SAMFileHeader createArtificialSamHeader() {
+        return createArtificialSamHeader(1, 1, 1000000);
     }
 
     /**
@@ -188,6 +235,7 @@ public class ArtificialSAMUtils {
         GATKSAMRecord rec = createArtificialRead(header, name, refIndex, alignmentStart, bases.length);
         rec.setReadBases(bases);
         rec.setBaseQualities(qual);
+        rec.setReadGroup(new GATKSAMReadGroupRecord("x"));
         if (refIndex == -1) {
             rec.setReadUnmappedFlag(true);
         }
@@ -230,7 +278,7 @@ public class ArtificialSAMUtils {
      * @return the artificial read
      */
     public static GATKSAMRecord createArtificialRead(byte[] bases, byte[] qual, String cigar) {
-        SAMFileHeader header = ArtificialSAMUtils.createArtificialSamHeader(1, 1, 1000000);
+        SAMFileHeader header = ArtificialSAMUtils.createArtificialSamHeader();
         return ArtificialSAMUtils.createArtificialRead(header, "default_read", 0, 10000, bases, qual, cigar);
     }
 
@@ -240,7 +288,7 @@ public class ArtificialSAMUtils {
         byte [] qual = {30};
         byte [] bases = Utils.arrayFromArrayWithLength(base, length);
         byte [] quals = Utils.arrayFromArrayWithLength(qual, length);
-        SAMFileHeader header = ArtificialSAMUtils.createArtificialSamHeader(1, 1, 1000000);
+        SAMFileHeader header = ArtificialSAMUtils.createArtificialSamHeader();
         return ArtificialSAMUtils.createArtificialRead(header, "default_read", 0, 10000, bases, quals, cigar.toString());
     }
 
@@ -274,6 +322,55 @@ public class ArtificialSAMUtils {
         right.setInferredInsertSize(-isize);
 
         return Arrays.asList(left, right);
+    }
+
+    /**
+     * Create an artificial reduced read based on the parameters.  The cigar string will be *M, where * is the
+     * length of the read. The base counts specified in the baseCounts array will be stored fully encoded in
+     * the RR attribute.
+     *
+     * @param header         the SAM header to associate the read with
+     * @param name           the name of the read
+     * @param refIndex       the reference index, i.e. what chromosome to associate it with
+     * @param alignmentStart where to start the alignment
+     * @param length         the length of the read
+     * @param baseCounts     reduced base counts to encode in the RR attribute; length must match the read length
+     * @return the artificial reduced read
+     */
+    public static GATKSAMRecord createArtificialReducedRead( final SAMFileHeader header,
+                                                             final String name,
+                                                             final int refIndex,
+                                                             final int alignmentStart,
+                                                             final int length,
+                                                             final int[] baseCounts ) {
+        final GATKSAMRecord read = createArtificialRead(header, name, refIndex, alignmentStart, length);
+        read.setReducedReadCounts(baseCounts);
+        read.setReducedReadCountsTag();
+        return read;
+    }
+
+    /**
+     * Create a collection of identical artificial reads based on the parameters.  The cigar string for each
+     * read will be *M, where * is the length of the read.
+     *
+     * Useful for testing things like positional downsampling where you care only about the position and
+     * number of reads, and not the other attributes.
+     *
+     * @param stackSize      number of identical reads to create
+     * @param header         the SAM header to associate each read with
+     * @param name           name associated with each read
+     * @param refIndex       the reference index, i.e. what chromosome to associate them with
+     * @param alignmentStart where to start each alignment
+     * @param length         the length of each read
+     *
+     * @return a collection of stackSize reads all sharing the above properties
+     */
+    public static Collection<GATKSAMRecord> createStackOfIdenticalArtificialReads( int stackSize, SAMFileHeader header, String name, int refIndex, int alignmentStart, int length ) {
+        Collection<GATKSAMRecord> stack = new ArrayList<GATKSAMRecord>(stackSize);
+        for ( int i = 1; i <= stackSize; i++ ) {
+            stack.add(createArtificialRead(header, name, refIndex, alignmentStart, length));
+        }
+        return stack;
     }
 
     /**
@@ -399,10 +496,10 @@ public class ArtificialSAMUtils {
             final GATKSAMRecord left = pair.get(0);
             final GATKSAMRecord right = pair.get(1);
 
-            pileupElements.add(new PileupElement(left, pos - leftStart, false, false, false, false, false, false));
+            pileupElements.add(LocusIteratorByState.createPileupForReadAndOffset(left, pos - leftStart));
 
             if (pos >= right.getAlignmentStart() && pos <= right.getAlignmentEnd()) {
-                pileupElements.add(new PileupElement(right, pos - rightStart, false, false, false, false, false, false));
+                pileupElements.add(LocusIteratorByState.createPileupForReadAndOffset(right, pos - rightStart));
             }
         }
 

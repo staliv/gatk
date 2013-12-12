@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.refdata;
 
 import net.sf.samtools.util.SequenceUtil;
@@ -9,7 +34,8 @@ import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.classloader.PluginManager;
 import org.broadinstitute.sting.utils.codecs.hapmap.RawHapMapFeature;
-import org.broadinstitute.sting.utils.variantcontext.*;
+import org.broadinstitute.sting.utils.variant.GATKVariantContextUtils;
+import org.broadinstitute.variant.variantcontext.*;
 
 import java.util.*;
 
@@ -163,43 +189,59 @@ public class VariantContextAdaptors {
         @Override        
         public VariantContext convert(String name, Object input, ReferenceContext ref) {
             OldDbSNPFeature dbsnp = (OldDbSNPFeature)input;
-            if ( ! Allele.acceptableAlleleBases(dbsnp.getNCBIRefBase()) )
-                return null;
-            Allele refAllele = Allele.create(dbsnp.getNCBIRefBase(), true);
 
-            if ( isSNP(dbsnp) || isIndel(dbsnp) || isMNP(dbsnp) || dbsnp.getVariantType().contains("mixed") ) {
-                // add the reference allele
-                List<Allele> alleles = new ArrayList<Allele>();
-                alleles.add(refAllele);
+            int index = dbsnp.getStart() - ref.getWindow().getStart() - 1;
+            if ( index < 0 )
+                return null; // we weren't given enough reference context to create the VariantContext
 
-                // add all of the alt alleles
-                boolean sawNullAllele = refAllele.isNull();
-                for ( String alt : getAlternateAlleleList(dbsnp) ) {
-                    if ( ! Allele.acceptableAlleleBases(alt) ) {
-                        //System.out.printf("Excluding dbsnp record %s%n", dbsnp);
-                        return null;
-                    }
-                    Allele altAllele = Allele.create(alt, false);
-                    alleles.add(altAllele);
-                    if ( altAllele.isNull() )
-                        sawNullAllele = true;
-                }
+            final byte refBaseForIndel = ref.getBases()[index];
+            final boolean refBaseIsDash = dbsnp.getNCBIRefBase().equals("-");
 
-                Map<String, Object> attributes = new HashMap<String, Object>();
-
-                int index = dbsnp.getStart() - ref.getWindow().getStart() - 1;
-                if ( index < 0 )
-                    return null; // we weren't given enough reference context to create the VariantContext
-                Byte refBaseForIndel = new Byte(ref.getBases()[index]);
-
-                final VariantContextBuilder builder = new VariantContextBuilder();
-                builder.source(name).id(dbsnp.getRsID());
-                builder.loc(dbsnp.getChr(), dbsnp.getStart() - (sawNullAllele ? 1 : 0), dbsnp.getEnd() - (refAllele.isNull() ? 1 : 0));
-                builder.alleles(alleles);
-                builder.referenceBaseForIndel(refBaseForIndel);
-                return builder.make();
-            } else
+            boolean addPaddingBase;
+            if ( isSNP(dbsnp) || isMNP(dbsnp) )
+                addPaddingBase = false;
+            else if ( isIndel(dbsnp) || dbsnp.getVariantType().contains("mixed") )
+                addPaddingBase = refBaseIsDash || GATKVariantContextUtils.requiresPaddingBase(stripNullDashes(getAlleleList(dbsnp)));
+            else
                 return null; // can't handle anything else
+
+            Allele refAllele;
+            if ( refBaseIsDash )
+                refAllele = Allele.create(refBaseForIndel, true);
+            else if ( ! Allele.acceptableAlleleBases(dbsnp.getNCBIRefBase()) )
+                return null;
+            else
+                refAllele = Allele.create((addPaddingBase ? (char)refBaseForIndel : "") + dbsnp.getNCBIRefBase(), true);
+
+            final List<Allele> alleles = new ArrayList<Allele>();
+            alleles.add(refAllele);
+
+            // add all of the alt alleles
+            for ( String alt : getAlternateAlleleList(dbsnp) ) {
+                if ( Allele.wouldBeNullAllele(alt.getBytes()))
+                    alt = "";
+                else if ( ! Allele.acceptableAlleleBases(alt) )
+                    return null;
+
+                alleles.add(Allele.create((addPaddingBase ? (char)refBaseForIndel : "") + alt, false));
+            }
+
+            final VariantContextBuilder builder = new VariantContextBuilder();
+            builder.source(name).id(dbsnp.getRsID());
+            builder.loc(dbsnp.getChr(), dbsnp.getStart() - (addPaddingBase ? 1 : 0), dbsnp.getEnd() - (addPaddingBase && refAllele.length() == 1 ? 1 : 0));
+            builder.alleles(alleles);
+            return builder.make();
+        }
+
+        private static List<String> stripNullDashes(final List<String> alleles) {
+            final List<String> newAlleles = new ArrayList<String>(alleles.size());
+            for ( final String allele : alleles ) {
+                if ( allele.equals("-") )
+                    newAlleles.add("");
+                else
+                    newAlleles.add(allele);
+            }
+            return newAlleles;
         }
     }
 
@@ -251,7 +293,7 @@ public class VariantContextAdaptors {
 
                 Map<String, Object> attributes = new HashMap<String, Object>();
                 Collection<Genotype> genotypes = new ArrayList<Genotype>();
-                Genotype call = new Genotype(name, genotypeAlleles);
+                Genotype call = GenotypeBuilder.create(name, genotypeAlleles);
 
                 // add the call to the genotype list, and then use this list to create a VariantContext
                 genotypes.add(call);
@@ -294,7 +336,6 @@ public class VariantContextAdaptors {
             int index = hapmap.getStart() - ref.getWindow().getStart();
             if ( index < 0 )
                 return null; // we weren't given enough reference context to create the VariantContext
-            Byte refBaseForIndel = new Byte(ref.getBases()[index]);
 
             HashSet<Allele> alleles = new HashSet<Allele>();
             Allele refSNPAllele = Allele.create(ref.getBase(), true);
@@ -344,14 +385,14 @@ public class VariantContextAdaptors {
                     alleles.add(allele2);
                 }
 
-                Genotype g = new Genotype(samples[i], myAlleles);
+                Genotype g = GenotypeBuilder.create(samples[i], myAlleles);
                 genotypes.add(g);
             }
 
             long end = hapmap.getEnd();
             if ( deletionLength > 0 )
-                end += deletionLength;
-            VariantContext vc = new VariantContextBuilder(name, hapmap.getChr(), hapmap.getStart(), end, alleles).id(hapmap.getName()).genotypes(genotypes).referenceBaseForIndel(refBaseForIndel).make();
+                end += (deletionLength - 1);
+            VariantContext vc = new VariantContextBuilder(name, hapmap.getChr(), hapmap.getStart(), end, alleles).id(hapmap.getName()).genotypes(genotypes).make();
             return vc;
        }
     }

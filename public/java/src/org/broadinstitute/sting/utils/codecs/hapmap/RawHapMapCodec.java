@@ -1,33 +1,34 @@
 /*
- * Copyright (c) 2010, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.codecs.hapmap;
 
-import org.broad.tribble.AbstractFeatureCodec;
-import org.broad.tribble.Feature;
+import org.broad.tribble.AsciiFeatureCodec;
+import org.broad.tribble.FeatureCodecHeader;
 import org.broad.tribble.annotation.Strand;
-import org.broad.tribble.readers.LineReader;
+import org.broad.tribble.readers.LineIterator;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -71,18 +72,14 @@ import java.util.Arrays;
  * @author Mark DePristo
  * @since 2010
  */
-public class RawHapMapCodec extends AbstractFeatureCodec {
+public class RawHapMapCodec extends AsciiFeatureCodec<RawHapMapFeature> {
     // the minimum number of features in the HapMap file line
     private static final int minimumFeatureCount = 11;
 
     private String headerLine;
-    /**
-     * decode the location only
-     * @param line the input line to decode
-     * @return a HapMapFeature
-     */
-    public Feature decodeLoc(String line) {
-        return decode(line);
+
+    public RawHapMapCodec() {
+        super(RawHapMapFeature.class);
     }
 
     /**
@@ -90,7 +87,7 @@ public class RawHapMapCodec extends AbstractFeatureCodec {
      * @param line the input line to decode
      * @return a HapMapFeature, with the given fields 
      */
-    public Feature decode(String line) {
+    public RawHapMapFeature decode(String line) {
         String[] array = line.split("\\s+");
 
         // make sure the split was successful - that we got an appropriate number of fields
@@ -113,16 +110,16 @@ public class RawHapMapCodec extends AbstractFeatureCodec {
                 headerLine);
     }
 
-    public Class<RawHapMapFeature> getFeatureType() {
-        return RawHapMapFeature.class;
+    @Override
+    public Object readActualHeader(final LineIterator lineIterator) {
+        this.headerLine = lineIterator.next();
+        return headerLine;
     }
 
-    public Object readHeader(LineReader reader) {
-        try {
-            headerLine = reader.readLine();
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Unable to read a line from the line reader");
-        }
-        return headerLine;
+    @Override
+    public FeatureCodecHeader readHeader(final LineIterator lineIterator) throws IOException {
+        final String header = (String) readActualHeader(lineIterator);
+        // TODO: This approach may cause issues with files formatted with \r\n-style line-endings.
+        return new FeatureCodecHeader(header, header.length() + 1);
     }
 }

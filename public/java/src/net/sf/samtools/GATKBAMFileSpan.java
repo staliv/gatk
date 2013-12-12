@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package net.sf.samtools;
 
@@ -123,6 +124,37 @@ public class GATKBAMFileSpan extends BAMFileSpan {
         for(GATKChunk chunk: getGATKChunks())
             size += chunk.size();
         return size;
+    }
+
+    /**
+     * Get a GATKChunk representing the "extent" of this file span, from the start of the first
+     * chunk to the end of the last chunk.The chunks list must be sorted in order to use this method.
+     *
+     * @return a GATKChunk representing the extent of this file span, or a GATKChunk representing
+     *         a span of size 0 if there are no chunks
+     */
+    public GATKChunk getExtent() {
+        validateSorted();   // TODO: defensive measure: may be unnecessary
+
+        List<Chunk> chunks = getChunks();
+        if ( chunks.isEmpty() ) {
+            return new GATKChunk(0L, 0L);
+        }
+
+        return new GATKChunk(chunks.get(0).getChunkStart(), chunks.get(chunks.size() - 1).getChunkEnd());
+    }
+
+    /**
+     * Validates the list of chunks to ensure that they appear in sorted order.
+     */
+    private void validateSorted() {
+        List<Chunk> chunks = getChunks();
+        for ( int i = 1; i < chunks.size(); i++ ) {
+            if ( chunks.get(i).getChunkStart() < chunks.get(i-1).getChunkEnd() ) {
+                throw new ReviewedStingException(String.format("Chunk list is unsorted; chunk %s is before chunk %s", chunks.get(i-1), chunks.get(i)));
+
+            }
+        }
     }
 
     /**

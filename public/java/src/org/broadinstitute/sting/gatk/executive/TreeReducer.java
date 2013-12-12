@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.executive;
 
 import org.broadinstitute.sting.gatk.walkers.TreeReducible;
@@ -66,21 +91,27 @@ public class TreeReducer implements Callable {
      * @return Result of the reduce.
      */
     public Object call() {
-        Object result = null;
+        Object result;
 
         final long startTime = System.currentTimeMillis();
 
         try {
             if( lhs == null )
-                result = lhs.get();
+                result = null;
                 // todo -- what the hell is this above line?  Shouldn't it be the two below?
 //            if( lhs == null )
 //                throw new IllegalStateException(String.format("Insufficient data on which to reduce; lhs = %s, rhs = %s", lhs, rhs) );
             else
                 result = walker.treeReduce( lhs.get(), rhs.get() );
         }
-        catch( InterruptedException ex ) { microScheduler.handleException(ex); }
-        catch( ExecutionException ex ) { microScheduler.handleException(ex); }
+        catch( InterruptedException ex ) {
+            microScheduler.notifyOfTraversalError(ex);
+            throw new ReviewedStingException("Hierarchical reduce interrupted", ex);
+        }
+        catch( ExecutionException ex ) {
+            microScheduler.notifyOfTraversalError(ex);
+            throw new ReviewedStingException("Hierarchical reduce failed", ex);
+        }
 
         final long endTime = System.currentTimeMillis();
 

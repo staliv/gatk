@@ -1,7 +1,6 @@
 /*.bam
 /*.bai
 /*.bed
-*.idx
 *~
 /*.vcf
 /*.txt
@@ -12,9 +11,16 @@
 *.ipr
 *.iws
 *.iml
+*.pyc
 .DS_Store
 queueScatterGather
 /foo*
 /bar*
 integrationtests/
 public/testdata/onTheFlyOutputTest.vcf
+build/
+dist/
+dump/
+lib/
+out/
+/atlassian-ide-plugin.xml

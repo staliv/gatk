@@ -1,36 +1,35 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.datasources.reads.utilities;
 
 import net.sf.picard.reference.IndexedFastaSequenceFile;
-import net.sf.samtools.SAMSequenceRecord;
 import org.apache.log4j.Logger;
 import org.broadinstitute.sting.commandline.CommandLineProgram;
 import org.broadinstitute.sting.commandline.Input;
 import org.broadinstitute.sting.commandline.Output;
-import org.broadinstitute.sting.gatk.datasources.reads.BAMScheduler;
 import org.broadinstitute.sting.gatk.datasources.reads.FilePointer;
 import org.broadinstitute.sting.gatk.datasources.reads.IntervalSharder;
 import org.broadinstitute.sting.gatk.datasources.reads.SAMDataSource;
@@ -97,14 +96,11 @@ public class FindLargeShards extends CommandLineProgram {
         SAMDataSource dataSource = new SAMDataSource(bamReaders,new ThreadAllocation(),null,genomeLocParser);
 
         // intervals
-        GenomeLocSortedSet intervalSortedSet = null;
-        if(intervals != null)
+        final GenomeLocSortedSet intervalSortedSet;
+        if ( intervals != null )
             intervalSortedSet = IntervalUtils.sortAndMergeIntervals(genomeLocParser, IntervalUtils.parseIntervalArguments(genomeLocParser, intervals), IntervalMergingRule.ALL);
-        else {
-            intervalSortedSet = new GenomeLocSortedSet(genomeLocParser);
-            for(SAMSequenceRecord entry: refReader.getSequenceDictionary().getSequences())
-                intervalSortedSet.add(genomeLocParser.createGenomeLoc(entry.getSequenceName(),1,entry.getSequenceLength()));
-        }
+        else
+            intervalSortedSet = GenomeLocSortedSet.createSetFromSequenceDictionary(refReader.getSequenceDictionary());
 
         logger.info(String.format("PROGRESS: Calculating mean and variance: Contig\tRegion.Start\tRegion.Stop\tSize"));        
 

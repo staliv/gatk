@@ -1,10 +1,33 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils;
 
-import cern.jet.math.Arithmetic;
 import org.broadinstitute.sting.BaseTest;
 import org.broadinstitute.sting.utils.collections.Pair;
 
-import org.jgrapht.alg.StrongConnectivityInspector;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import org.testng.Assert;
@@ -40,12 +63,15 @@ public class MWUnitTest extends BaseTest {
         Assert.assertEquals(MannWhitneyU.calculateOneSidedU(mwu.getObservations(),MannWhitneyU.USet.SET2),11L);
 
         MannWhitneyU mwu2 = new MannWhitneyU();
+        MannWhitneyU mwuNoDither = new MannWhitneyU(false);
         for ( int dp : new int[]{2,4,5,6,8} ) {
             mwu2.add(dp,MannWhitneyU.USet.SET1);
+            mwuNoDither.add(dp,MannWhitneyU.USet.SET1);
         }
 
         for ( int dp : new int[]{1,3,7,9,10,11,12,13} ) {
             mwu2.add(dp,MannWhitneyU.USet.SET2);
+            mwuNoDither.add(dp,MannWhitneyU.USet.SET2);
         }
 
         MannWhitneyU.ExactMode pm = MannWhitneyU.ExactMode.POINT;
@@ -54,6 +80,8 @@ public class MWUnitTest extends BaseTest {
         // tests using the hypothesis that set 2 dominates set 1 (U value = 10)
         Assert.assertEquals(MannWhitneyU.calculateOneSidedU(mwu2.getObservations(),MannWhitneyU.USet.SET1),10L);
         Assert.assertEquals(MannWhitneyU.calculateOneSidedU(mwu2.getObservations(),MannWhitneyU.USet.SET2),30L);
+        Assert.assertEquals(MannWhitneyU.calculateOneSidedU(mwuNoDither.getObservations(),MannWhitneyU.USet.SET1),10L);
+        Assert.assertEquals(MannWhitneyU.calculateOneSidedU(mwuNoDither.getObservations(),MannWhitneyU.USet.SET2),30L);
 
         Pair<Integer,Integer> sizes = mwu2.getSetSizes();
 

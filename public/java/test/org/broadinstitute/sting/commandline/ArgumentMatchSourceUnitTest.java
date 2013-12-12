@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
@@ -35,15 +36,15 @@ public class ArgumentMatchSourceUnitTest extends BaseTest {
     public void testCommandLine() {
         ArgumentMatchSource source = ArgumentMatchSource.COMMAND_LINE;
         Assert.assertEquals(source.getType(), ArgumentMatchSourceType.CommandLine);
-        Assert.assertNull(source.getFile());
+        Assert.assertNull(source.getDescription());
     }
 
     @Test
     public void testFile() {
         File f = new File("test");
-        ArgumentMatchSource source = new ArgumentMatchSource(f);
-        Assert.assertEquals(source.getType(), ArgumentMatchSourceType.File);
-        Assert.assertEquals(source.getFile(), f);
+        ArgumentMatchSource source = new ArgumentMatchFileSource(f);
+        Assert.assertEquals(source.getType(), ArgumentMatchSourceType.Provider);
+        Assert.assertEquals(source.getDescription(), "file " + f.getAbsolutePath());
     }
 
     @Test(expectedExceptions = IllegalArgumentException.class)
@@ -54,8 +55,8 @@ public class ArgumentMatchSourceUnitTest extends BaseTest {
     @Test
     public void testEquals() {
         ArgumentMatchSource cmdLine = ArgumentMatchSource.COMMAND_LINE;
-        ArgumentMatchSource fileA = new ArgumentMatchSource(new File("a"));
-        ArgumentMatchSource fileB = new ArgumentMatchSource(new File("b"));
+        ArgumentMatchSource fileA = new ArgumentMatchFileSource(new File("a"));
+        ArgumentMatchSource fileB = new ArgumentMatchFileSource(new File("b"));
 
         Assert.assertFalse(cmdLine.equals(null));
 
@@ -75,8 +76,8 @@ public class ArgumentMatchSourceUnitTest extends BaseTest {
     @Test
     public void testCompareTo() {
         ArgumentMatchSource cmdLine = ArgumentMatchSource.COMMAND_LINE;
-        ArgumentMatchSource fileA = new ArgumentMatchSource(new File("a"));
-        ArgumentMatchSource fileB = new ArgumentMatchSource(new File("b"));
+        ArgumentMatchSource fileA = new ArgumentMatchFileSource(new File("a"));
+        ArgumentMatchSource fileB = new ArgumentMatchFileSource(new File("b"));
 
         Assert.assertTrue(cmdLine.compareTo(cmdLine) == 0);
         Assert.assertTrue(cmdLine.compareTo(fileA) < 0);

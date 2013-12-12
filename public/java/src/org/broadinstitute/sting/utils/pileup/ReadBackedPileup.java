@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2010, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.pileup;
 
@@ -59,6 +60,16 @@ public interface ReadBackedPileup extends Iterable<PileupElement>, HasGenomeLoca
      * @return the newly filtered pileup
      */
     public ReadBackedPileup getOverlappingFragmentFilteredPileup();
+
+    /**
+     * Returns a new ReadBackedPileup where only one read from an overlapping read
+     * pair is retained.  If discardDiscordant and the two reads in question disagree to their basecall,
+     * neither read is retained.  Otherwise, the read with the higher
+     * quality (base or mapping, depending on baseQualNotMapQual) observation is retained
+     *
+     * @return the newly filtered pileup
+     */
+    public ReadBackedPileup getOverlappingFragmentFilteredPileup(boolean discardDiscordant, boolean baseQualNotMapQual);
 
     /**
      * Returns a new ReadBackedPileup that is free of mapping quality zero reads in this pileup.  Note that this
@@ -259,11 +270,26 @@ public interface ReadBackedPileup extends Iterable<PileupElement>, HasGenomeLoca
      * Get an array of the mapping qualities
      * @return
      */
-    public byte[] getMappingQuals();
+    public int[] getMappingQuals();
+
+    /**
+     * Returns a new ReadBackedPileup that is sorted by start coordinate of the reads.
+     *
+     * @return
+     */
+    public ReadBackedPileup getStartSortedPileup();
 
     /**
      * Converts this pileup into a FragmentCollection (see FragmentUtils for documentation)
      * @return
      */
     public FragmentCollection<PileupElement> toFragments();
+
+    /**
+     * Creates a full copy (not shallow) of the ReadBacked Pileup
+     *
+     * @return
+     */
+    public ReadBackedPileup copy();
+
 }

@@ -1,31 +1,36 @@
 /*
- * Copyright (c) 2010, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.codecs.hapmap;
 
 import org.broad.tribble.annotation.Strand;
-import org.broad.tribble.readers.AsciiLineReader;
+import org.broad.tribble.readers.LineIterator;
+import org.broad.tribble.readers.LineIteratorImpl;
+import org.broad.tribble.readers.LineReaderUtil;
+import org.broad.tribble.readers.PositionalBufferedStream;
+import org.broadinstitute.sting.BaseTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -37,9 +42,9 @@ import java.io.IOException;
 /**
  * Unit tests for the HapMap codec
  */
-public class HapMapUnitTest {
+public class HapMapUnitTest extends BaseTest {
     // our sample hapmap file
-    private final static File hapMapFile = new File("public/testdata/genotypes_chr1_ASW_phase3.3_first500.hapmap");
+    private final static File hapMapFile = new File(privateTestDir + "genotypes_chr1_ASW_phase3.3_first500.hapmap");
     private final static String knownLine = "rs2185539 C/T chr1 556738 + ncbi_b36 bbs urn:lsid:bbs.hapmap.org:Protocol:Phase3.r3:1 urn:lsid:bbs.hapmap.org:Assay:Phase3.r3_r" +
             "s2185539:1 urn:lsid:dcc.hapmap.org:Panel:US_African-30-trios:4 QC+ CC TC TT CT CC CC CC CC CC CC CC CC CC";
     /**
@@ -50,15 +55,13 @@ public class HapMapUnitTest {
     @Test
     public void testReadHeader() {
         RawHapMapCodec codec = new RawHapMapCodec();
-        AsciiLineReader reader = getReader();
+        final LineIterator reader = getLineIterator();
         try {
-            String header = reader.readLine();
-            reader.close();
-            Assert.assertTrue(header.equals(codec.readHeader(getReader())));
-        } catch (IOException e) {
-            Assert.fail("Unable to read from file " + hapMapFile);
+            String header = reader.next();
+            Assert.assertTrue(header.equals(codec.readActualHeader(getLineIterator())));
+        } finally {
+            codec.close(reader);
         }
-        reader.close();
     }
 
     @Test
@@ -111,22 +114,20 @@ public class HapMapUnitTest {
     public void testReadCorrectNumberOfRecords() {
         // setup the record for reading our 500 line file (499 records, 1 header line)
         RawHapMapCodec codec = new RawHapMapCodec();
-        AsciiLineReader reader = getReader();
+        final LineIterator reader = getLineIterator();
 
-        String line;
         int count = 0;
         try {
             codec.readHeader(reader);
-            line = reader.readLine();
-            while (line != null) {
-                codec.decode(line);
-                line = reader.readLine();
+            while (reader.hasNext()) {
+                codec.decode(reader.next());
                 ++count;
             }
         } catch (IOException e) {
             Assert.fail("IOException " + e.getMessage());
+        } finally {
+            codec.close(reader);
         }
-        reader.close();
         Assert.assertEquals(count,499);
     }
 
@@ -134,25 +135,26 @@ public class HapMapUnitTest {
     public void testGetSampleNames() {
         // setup the record for reading our 500 line file (499 records, 1 header line)
         RawHapMapCodec codec = new RawHapMapCodec();
-        AsciiLineReader reader = getReader();
+        final LineIterator reader = getLineIterator();
 
         String line;
         try {
             codec.readHeader(reader);
-            line = reader.readLine();
+            line = reader.next();
             RawHapMapFeature feature = (RawHapMapFeature) codec.decode(line);
             Assert.assertEquals(feature.getSampleIDs().length,87);
 
         } catch (IOException e) {
             Assert.fail("IOException " + e.getMessage());
+        } finally {
+            codec.close(reader);
         }
-        reader.close();
     }
 
 
-    public AsciiLineReader getReader() {
+    public LineIterator getLineIterator() {
         try {
-            return new AsciiLineReader(new FileInputStream(hapMapFile));            
+            return new LineIteratorImpl(LineReaderUtil.fromBufferedStream(new PositionalBufferedStream(new FileInputStream(hapMapFile))));
         } catch (FileNotFoundException e) {
             Assert.fail("Unable to open hapmap file : " + hapMapFile);
         }

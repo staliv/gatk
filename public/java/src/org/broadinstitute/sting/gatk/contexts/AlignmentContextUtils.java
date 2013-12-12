@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2009 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.contexts;
 
@@ -116,19 +116,15 @@ public class AlignmentContextUtils {
      *
      **/
     public static Map<SAMReadGroupRecord, AlignmentContext> splitContextByReadGroup(AlignmentContext context, Collection<SAMReadGroupRecord> readGroups) {
-        if ( ! context.hasBasePileup() ) {
-            return Collections.emptyMap();
-        } else {
-            HashMap<SAMReadGroupRecord, AlignmentContext> contexts = new HashMap<SAMReadGroupRecord, AlignmentContext>();
+        HashMap<SAMReadGroupRecord, AlignmentContext> contexts = new HashMap<SAMReadGroupRecord, AlignmentContext>();
 
-            for (SAMReadGroupRecord rg : readGroups) {
-                ReadBackedPileup rgPileup = context.getBasePileup().getPileupForReadGroup(rg.getReadGroupId());
-                if ( rgPileup != null ) // there we some reads for RG
-                    contexts.put(rg, new AlignmentContext(context.getLocation(), rgPileup));
-            }
-
-            return contexts;
+        for (SAMReadGroupRecord rg : readGroups) {
+            ReadBackedPileup rgPileup = context.getBasePileup().getPileupForReadGroup(rg.getReadGroupId());
+            if ( rgPileup != null ) // there we some reads for RG
+                contexts.put(rg, new AlignmentContext(context.getLocation(), rgPileup));
         }
+
+        return contexts;
     }
 
     public static Map<String, AlignmentContext> splitContextBySampleName(ReadBackedPileup pileup) {
@@ -139,32 +135,16 @@ public class AlignmentContextUtils {
     public static AlignmentContext joinContexts(Collection<AlignmentContext> contexts) {
         // validation
         GenomeLoc loc = contexts.iterator().next().getLocation();
-        boolean isExtended = contexts.iterator().next().basePileup instanceof ReadBackedExtendedEventPileup;
         for(AlignmentContext context: contexts) {
             if(!loc.equals(context.getLocation()))
                 throw new ReviewedStingException("Illegal attempt to join contexts from different genomic locations");
-            if(isExtended != (context.basePileup instanceof ReadBackedExtendedEventPileup))
-                throw new ReviewedStingException("Illegal attempt to join simple and extended contexts");
         }
 
-        AlignmentContext jointContext;
-        if(isExtended) {
-            List<ExtendedEventPileupElement> pe = new ArrayList<ExtendedEventPileupElement>();
-            for(AlignmentContext context: contexts) {
-                for(PileupElement pileupElement: context.basePileup)
-                    pe.add((ExtendedEventPileupElement)pileupElement);
-            }
-            jointContext = new AlignmentContext(loc, new ReadBackedExtendedEventPileupImpl(loc,pe));
+        List<PileupElement> pe = new ArrayList<PileupElement>();
+        for(AlignmentContext context: contexts) {
+            for(PileupElement pileupElement: context.basePileup)
+                pe.add(pileupElement);
         }
-        else {
-            List<PileupElement> pe = new ArrayList<PileupElement>();
-            for(AlignmentContext context: contexts) {
-                for(PileupElement pileupElement: context.basePileup)
-                    pe.add(pileupElement);
-            }
-            jointContext = new AlignmentContext(loc, new ReadBackedPileupImpl(loc,pe));
-        }
-
-        return jointContext;
+        return new AlignmentContext(loc, new ReadBackedPileupImpl(loc,pe));
     }
 }

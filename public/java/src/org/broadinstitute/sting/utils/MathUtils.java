@@ -1,36 +1,36 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils;
 
 import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
-import net.sf.samtools.SAMRecord;
+import org.apache.commons.math.distribution.ExponentialDistribution;
+import org.apache.commons.math.distribution.ExponentialDistributionImpl;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
-import org.broadinstitute.sting.utils.exceptions.UserException;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -51,12 +51,23 @@ public class MathUtils {
     public static final double[] log10Cache;
     public static final double[] log10FactorialCache;
     private static final double[] jacobianLogTable;
-    private static final double JACOBIAN_LOG_TABLE_STEP = 0.001;
-    private static final double JACOBIAN_LOG_TABLE_INV_STEP = 1.0 / 0.001;
+    private static final double JACOBIAN_LOG_TABLE_STEP = 0.0001;
+    private static final double JACOBIAN_LOG_TABLE_INV_STEP = 1.0 / JACOBIAN_LOG_TABLE_STEP;
     private static final double MAX_JACOBIAN_TOLERANCE = 8.0;
     private static final int JACOBIAN_LOG_TABLE_SIZE = (int) (MAX_JACOBIAN_TOLERANCE / JACOBIAN_LOG_TABLE_STEP) + 1;
-    private static final int MAXN = 11000;
+    private static final int MAXN = 70_000;
     private static final int LOG10_CACHE_SIZE = 4 * MAXN;  // we need to be able to go up to 2*(2N) when calculating some of the coefficients
+
+    /**
+     * The smallest log10 value we'll emit from normalizeFromLog10 and other functions
+     * where the real-space value is 0.0.
+     */
+    public static final double LOG10_P_OF_ZERO = -1000000.0;
+    public static final double FAIR_BINOMIAL_PROB_LOG10_0_5 = Math.log10(0.5);
+    public static final double LOG_ONE_HALF = -Math.log10(2.0);
+    public static final double LOG_ONE_THIRD = -Math.log10(3.0);
+    private static final double NATURAL_LOG_OF_TEN = Math.log(10.0);
+    private static final double SQUARE_ROOT_OF_TWO_TIMES_PI = Math.sqrt(2.0 * Math.PI);
 
     static {
         log10Cache = new double[LOG10_CACHE_SIZE];
@@ -64,6 +75,7 @@ public class MathUtils {
         jacobianLogTable = new double[JACOBIAN_LOG_TABLE_SIZE];
 
         log10Cache[0] = Double.NEGATIVE_INFINITY;
+        log10FactorialCache[0] = 0.0;
         for (int k = 1; k < LOG10_CACHE_SIZE; k++) {
             log10Cache[k] = Math.log10(k);
             log10FactorialCache[k] = log10FactorialCache[k-1] + log10Cache[k];
@@ -75,10 +87,21 @@ public class MathUtils {
         }
     }
 
+    /**
+     * Get a random int between min and max (inclusive) using the global GATK random number generator
+     *
+     * @param min lower bound of the range
+     * @param max upper bound of the range
+     * @return a random int >= min and <= max
+     */
+    public static int randomIntegerInRange( final int min, final int max ) {
+        return GenomeAnalysisEngine.getRandomGenerator().nextInt(max - min + 1) + min;
+    }
+
     // A fast implementation of the Math.round() method.  This method does not perform
     // under/overflow checking, so this shouldn't be used in the general case (but is fine
     // if one is already make those checks before calling in to the rounding).
-    public static int fastRound(double d) {
+    public static int fastRound(final double d) {
         return (d > 0.0) ? (int) (d + 0.5d) : (int) (d - 0.5d);
     }
 
@@ -106,7 +129,7 @@ public class MathUtils {
         return approxSum;
     }
 
-    public static double approximateLog10SumLog10(double a, double b, double c) {
+    public static double approximateLog10SumLog10(final double a, final double b, final double c) {
         return approximateLog10SumLog10(a, approximateLog10SumLog10(b, c));
     }
 
@@ -135,110 +158,74 @@ public class MathUtils {
         return big + MathUtils.jacobianLogTable[ind];
     }
 
-    public static double sum(Collection<? extends Number> numbers) {
-        return sum(numbers, false);
-    }
-
-    public static double sum(Collection<? extends Number> numbers, boolean ignoreNan) {
-        double sum = 0;
-        for (Number n : numbers) {
-            if (!ignoreNan || !Double.isNaN(n.doubleValue())) {
-                sum += n.doubleValue();
-            }
-        }
-
-        return sum;
-    }
-
-    public static int nonNanSize(Collection<Number> numbers) {
-        int size = 0;
-        for (Number n : numbers) {
-            size += Double.isNaN(n.doubleValue()) ? 0 : 1;
-        }
-
-        return size;
-    }
-
-    public static double average(Collection<? extends Number> x) {
-        return sum(x) / x.size();
-    }
-
-    public static double average(Collection<Number> numbers, boolean ignoreNan) {
-        if (ignoreNan) {
-            return sum(numbers, true) / nonNanSize(numbers);
-        }
-        else {
-            return sum(numbers, false) / nonNanSize(numbers);
-        }
-    }
-
-    public static double variance(Collection<Number> numbers, Number mean, boolean ignoreNan) {
-        double mn = mean.doubleValue();
-        double var = 0;
-        for (Number n : numbers) {
-            var += (!ignoreNan || !Double.isNaN(n.doubleValue())) ? (n.doubleValue() - mn) * (n.doubleValue() - mn) : 0;
-        }
-        if (ignoreNan) {
-            return var / (nonNanSize(numbers) - 1);
-        }
-        return var / (numbers.size() - 1);
-    }
-
-    public static double variance(Collection<Number> numbers, Number mean) {
-        return variance(numbers, mean, false);
-    }
-
-    public static double variance(Collection<Number> numbers, boolean ignoreNan) {
-        return variance(numbers, average(numbers, ignoreNan), ignoreNan);
-    }
-
-    public static double variance(Collection<Number> numbers) {
-        return variance(numbers, average(numbers, false), false);
-    }
-
-    public static double sum(double[] values) {
+    public static double sum(final double[] values) {
         double s = 0.0;
         for (double v : values)
             s += v;
         return s;
     }
 
-    public static long sum(int[] x) {
+    public static long sum(final int[] x) {
         long total = 0;
         for (int v : x)
             total += v;
         return total;
     }
 
-    /**
-     * Calculates the log10 cumulative sum of an array with log10 probabilities
-     *
-     * @param log10p the array with log10 probabilities
-     * @param upTo   index in the array to calculate the cumsum up to
-     * @return the log10 of the cumulative sum
-     */
-    public static double log10CumulativeSumLog10(double[] log10p, int upTo) {
-        return log10sumLog10(log10p, 0, upTo);
+    public static int sum(final byte[] x) {
+        int total = 0;
+        for (byte v : x)
+            total += (int)v;
+        return total;
+    }
+
+    public static double percentage(int x, int base) {
+        return (base > 0 ? ((double) x / (double) base) * 100.0 : 0);
+    }
+
+    public static double ratio(final int num, final int denom) {
+        if ( denom > 0 ) {
+            return ((double) num)/denom;
+        } else {
+            if ( num == 0 && denom == 0) {
+                return 0.0;
+            } else {
+                throw new ReviewedStingException(String.format("The denominator of a ratio cannot be zero or less than zero: %d/%d",num,denom));
+            }
+        }
+    }
+
+    public static double ratio(final long num, final long denom) {
+        if ( denom > 0L ) {
+            return ((double) num)/denom;
+        } else {
+            if ( num == 0L && denom == 0L ) {
+                return 0.0;
+            } else {
+                throw new ReviewedStingException(String.format("The denominator of a ratio cannot be zero or less than zero: %d/%d",num,denom));
+            }
+        }
     }
 
     /**
-     * Converts a real space array of probabilities into a log10 array
+     * Converts a real space array of numbers (typically probabilities) into a log10 array
      *
      * @param prRealSpace
      * @return
      */
-    public static double[] toLog10(double[] prRealSpace) {
+    public static double[] toLog10(final double[] prRealSpace) {
         double[] log10s = new double[prRealSpace.length];
-        for (int i = 0; i < prRealSpace.length; i++)
+        for (int i = 0; i < prRealSpace.length; i++) {
             log10s[i] = Math.log10(prRealSpace[i]);
+        }
         return log10s;
     }
 
-    public static double log10sumLog10(double[] log10p, int start) {
+    public static double log10sumLog10(final double[] log10p, final int start) {
         return log10sumLog10(log10p, start, log10p.length);
     }
 
-    public static double log10sumLog10(double[] log10p, int start, int finish) {
+    public static double log10sumLog10(final double[] log10p,final int start,final int finish) {
         double sum = 0.0;
 
         double maxValue = arrayMax(log10p, finish);
@@ -246,62 +233,48 @@ public class MathUtils {
             return maxValue;
 
         for (int i = start; i < finish; i++) {
+            if ( Double.isNaN(log10p[i]) || log10p[i] == Double.POSITIVE_INFINITY ) {
+                throw new IllegalArgumentException("log10p: Values must be non-infinite and non-NAN");
+            }
             sum += Math.pow(10.0, log10p[i] - maxValue);
         }
 
         return Math.log10(sum) + maxValue;
     }
 
-    public static double sumDoubles(List<Double> values) {
-        double s = 0.0;
-        for (double v : values)
-            s += v;
-        return s;
-    }
-
-    public static int sumIntegers(List<Integer> values) {
-        int s = 0;
-        for (int v : values)
-            s += v;
-        return s;
-    }
-
-    public static double sumLog10(double[] log10values) {
+    public static double sumLog10(final double[] log10values) {
         return Math.pow(10.0, log10sumLog10(log10values));
-        //        double s = 0.0;
-        //        for ( double v : log10values) s += Math.pow(10.0, v);
-        //        return s;
     }
 
-    public static double log10sumLog10(double[] log10values) {
+    public static double log10sumLog10(final double[] log10values) {
         return log10sumLog10(log10values, 0);
     }
 
-    public static boolean wellFormedDouble(double val) {
+    public static boolean wellFormedDouble(final double val) {
         return !Double.isInfinite(val) && !Double.isNaN(val);
     }
 
-    public static double bound(double value, double minBoundary, double maxBoundary) {
+    public static double bound(final double value, final double minBoundary, final double maxBoundary) {
         return Math.max(Math.min(value, maxBoundary), minBoundary);
     }
 
-    public static boolean isBounded(double val, double lower, double upper) {
+    public static boolean isBounded(final double val, final double lower, final double upper) {
         return val >= lower && val <= upper;
     }
 
-    public static boolean isPositive(double val) {
+    public static boolean isPositive(final double val) {
         return !isNegativeOrZero(val);
     }
 
-    public static boolean isPositiveOrZero(double val) {
+    public static boolean isPositiveOrZero(final double val) {
         return isBounded(val, 0.0, Double.POSITIVE_INFINITY);
     }
 
-    public static boolean isNegativeOrZero(double val) {
+    public static boolean isNegativeOrZero(final double val) {
         return isBounded(val, Double.NEGATIVE_INFINITY, 0.0);
     }
 
-    public static boolean isNegative(double val) {
+    public static boolean isNegative(final double val) {
         return !isPositiveOrZero(val);
     }
 
@@ -312,7 +285,7 @@ public class MathUtils {
      * @param b the second double value
      * @return -1 if a is greater than b, 0 if a is equal to be within 1e-6, 1 if b is greater than a.
      */
-    public static byte compareDoubles(double a, double b) {
+    public static byte compareDoubles(final double a, final double b) {
         return compareDoubles(a, b, 1e-6);
     }
 
@@ -324,7 +297,7 @@ public class MathUtils {
      * @param epsilon the precision within which two double values will be considered equal
      * @return -1 if a is greater than b, 0 if a is equal to be within epsilon, 1 if b is greater than a.
      */
-    public static byte compareDoubles(double a, double b, double epsilon) {
+    public static byte compareDoubles(final double a, final double b, final double epsilon) {
         if (Math.abs(a - b) < epsilon) {
             return 0;
         }
@@ -335,42 +308,73 @@ public class MathUtils {
     }
 
     /**
-     * Compares float values for equality (within 1e-6), or inequality.
-     *
-     * @param a the first float value
-     * @param b the second float value
-     * @return -1 if a is greater than b, 0 if a is equal to be within 1e-6, 1 if b is greater than a.
+     * Calculate f(x) = Normal(x | mu = mean, sigma = sd)
+     * @param mean the desired mean of the Normal distribution
+     * @param sd the desired standard deviation of the Normal distribution
+     * @param x the value to evaluate
+     * @return a well-formed double
      */
-    public static byte compareFloats(float a, float b) {
-        return compareFloats(a, b, 1e-6f);
-    }
-
-    /**
-     * Compares float values for equality (within epsilon), or inequality.
-     *
-     * @param a       the first float value
-     * @param b       the second float value
-     * @param epsilon the precision within which two float values will be considered equal
-     * @return -1 if a is greater than b, 0 if a is equal to be within epsilon, 1 if b is greater than a.
-     */
-    public static byte compareFloats(float a, float b, float epsilon) {
-        if (Math.abs(a - b) < epsilon) {
-            return 0;
-        }
-        if (a > b) {
-            return -1;
-        }
-        return 1;
-    }
-
-    public static double NormalDistribution(double mean, double sd, double x) {
+    public static double normalDistribution(final double mean, final double sd, final double x) {
+        if( sd < 0 )
+            throw new IllegalArgumentException("sd: Standard deviation of normal must be >0");
+        if ( ! wellFormedDouble(mean) || ! wellFormedDouble(sd) || ! wellFormedDouble(x) )
+            throw new IllegalArgumentException("mean, sd, or, x : Normal parameters must be well formatted (non-INF, non-NAN)");
         double a = 1.0 / (sd * Math.sqrt(2.0 * Math.PI));
         double b = Math.exp(-1.0 * (Math.pow(x - mean, 2.0) / (2.0 * sd * sd)));
         return a * b;
     }
 
-    public static double binomialCoefficient(int n, int k) {
+    /**
+     * Calculate f(x) = log10 ( Normal(x | mu = mean, sigma = sd) )
+     * @param mean the desired mean of the Normal distribution
+     * @param sd the desired standard deviation of the Normal distribution
+     * @param x the value to evaluate
+     * @return a well-formed double
+     */
+
+    public static double normalDistributionLog10(final double mean, final double sd, final double x) {
+        if( sd < 0 )
+            throw new IllegalArgumentException("sd: Standard deviation of normal must be >0");
+        if ( ! wellFormedDouble(mean) || ! wellFormedDouble(sd) || ! wellFormedDouble(x) )
+            throw new IllegalArgumentException("mean, sd, or, x : Normal parameters must be well formatted (non-INF, non-NAN)");
+        final double a = -1.0 * Math.log10(sd * SQUARE_ROOT_OF_TWO_TIMES_PI);
+        final double b = -1.0 * (square(x - mean) / (2.0 * square(sd))) / NATURAL_LOG_OF_TEN;
+        return a + b;
+    }
+
+    /**
+     * Calculate f(x) = x^2
+     * @param x the value to square
+     * @return x * x
+     */
+    public static double square(final double x) {
+        return x * x;
+    }
+
+    /**
+     * Calculates the log10 of the binomial coefficient. Designed to prevent
+     * overflows even with very large numbers.
+     *
+     * @param n total number of trials
+     * @param k number of successes
+     * @return the log10 of the binomial coefficient
+     */
+    public static double binomialCoefficient(final int n, final int k) {
         return Math.pow(10, log10BinomialCoefficient(n, k));
+    }
+
+    /**
+     * @see #binomialCoefficient(int, int) with log10 applied to result
+     */
+    public static double log10BinomialCoefficient(final int n, final int k) {
+        if ( n < 0 ) {
+            throw new IllegalArgumentException("n: Must have non-negative number of trials");
+        }
+        if ( k > n || k < 0 ) {
+            throw new IllegalArgumentException("k: Must have non-negative number of successes, and no more successes than number of trials");
+        }
+
+        return log10Factorial(n) - log10Factorial(k) - log10Factorial(n - k);
     }
 
     /**
@@ -385,37 +389,154 @@ public class MathUtils {
      * @param p probability of success
      * @return the binomial probability of the specified configuration.  Computes values down to about 1e-237.
      */
-    public static double binomialProbability(int n, int k, double p) {
+    public static double binomialProbability(final int n, final int k, final double p) {
         return Math.pow(10, log10BinomialProbability(n, k, Math.log10(p)));
     }
 
     /**
+     * @see #binomialProbability(int, int, double) with log10 applied to result
+     */
+    public static double log10BinomialProbability(final int n, final int k, final double log10p) {
+        if ( log10p > 1e-18 )
+            throw new IllegalArgumentException("log10p: Log-probability must be 0 or less");
+        double log10OneMinusP = Math.log10(1 - Math.pow(10, log10p));
+        return log10BinomialCoefficient(n, k) + log10p * k + log10OneMinusP * (n - k);
+    }
+
+    /**
+     * @see #binomialProbability(int, int, double) with p=0.5
+     */
+    public static double binomialProbability(final int n, final int k) {
+        return Math.pow(10, log10BinomialProbability(n, k));
+    }
+
+    /**
+     * @see #binomialProbability(int, int, double) with p=0.5 and log10 applied to result
+     */
+    public static double log10BinomialProbability(final int n, final int k) {
+        return log10BinomialCoefficient(n, k) + (n * FAIR_BINOMIAL_PROB_LOG10_0_5);
+    }
+
+    /** A memoization container for {@link #binomialCumulativeProbability(int, int, int)}.  Synchronized to accomodate multithreading. */
+    private static final Map<Long, Double> BINOMIAL_CUMULATIVE_PROBABILITY_MEMOIZATION_CACHE = 
+            Collections.synchronizedMap(new LRUCache<Long, Double>(10_000)); 
+    
+    /**
+     * Primitive integer-triplet bijection into long.  Returns null when the bijection function fails (in lieu of an exception), which will
+     * happen when: any value is negative or larger than a short.  This method is optimized for speed; it is not intended to serve as a 
+     * utility function.
+     */
+    static Long fastGenerateUniqueHashFromThreeIntegers(final int one, final int two, final int three) {
+        if (one < 0 || two < 0 || three < 0 || Short.MAX_VALUE < one || Short.MAX_VALUE < two || Short.MAX_VALUE < three) {
+            return null;
+        } else {
+            long result = 0;
+            result += (short) one;
+            result <<= 16;
+            result += (short) two;
+            result <<= 16;
+            result += (short) three;
+            return result;
+        }
+    }
+    
+    /**
      * Performs the cumulative sum of binomial probabilities, where the probability calculation is done in log space.
+     * Assumes that the probability of a successful hit is fair (i.e. 0.5).
+     * 
+     * This pure function is memoized because of its expensive BigDecimal calculations.
      *
-     * @param start   - start of the cumulant sum (over hits)
-     * @param end     - end of the cumulant sum (over hits)
-     * @param total   - number of attempts for the number of hits
-     * @param probHit - probability of a successful hit
+     * @param n         number of attempts for the number of hits
+     * @param k_start   start (inclusive) of the cumulant sum (over hits)
+     * @param k_end     end (inclusive) of the cumulant sum (over hits)
      * @return - returns the cumulative probability
      */
-    public static double binomialCumulativeProbability(int start, int end, int total, double probHit) {
-        double cumProb = 0.0;
-        double prevProb;
-        BigDecimal probCache = BigDecimal.ZERO;
+    public static double binomialCumulativeProbability(final int n, final int k_start, final int k_end) {
+        if ( k_end > n )
+            throw new IllegalArgumentException(String.format("Value for k_end (%d) is greater than n (%d)", k_end, n));
 
-        for (int hits = start; hits < end; hits++) {
-            prevProb = cumProb;
-            double probability = binomialProbability(total, hits, probHit);
-            cumProb += probability;
-            if (probability > 0 && cumProb - prevProb < probability / 2) { // loss of precision
-                probCache = probCache.add(new BigDecimal(prevProb));
-                cumProb = 0.0;
-                hits--; // repeat loop
-                // prevProb changes at start of loop
-            }
+        // Fetch cached value, if applicable.
+        final Long memoizationKey = fastGenerateUniqueHashFromThreeIntegers(n, k_start, k_end);
+        final Double memoizationCacheResult;
+        if (memoizationKey != null) {
+            memoizationCacheResult = BINOMIAL_CUMULATIVE_PROBABILITY_MEMOIZATION_CACHE.get(memoizationKey);
+        } else {
+            memoizationCacheResult = null;
         }
 
-        return probCache.add(new BigDecimal(cumProb)).doubleValue();
+        final double result;
+        if (memoizationCacheResult != null) {
+            result = memoizationCacheResult;
+        } else {
+            double cumProb = 0.0;
+            double prevProb;
+            BigDecimal probCache = BigDecimal.ZERO;
+
+            for (int hits = k_start; hits <= k_end; hits++) {
+                prevProb = cumProb;
+                final double probability = binomialProbability(n, hits);
+                cumProb += probability;
+                if (probability > 0 && cumProb - prevProb < probability / 2) { // loss of precision
+                    probCache = probCache.add(new BigDecimal(prevProb));
+                    cumProb = 0.0;
+                    hits--; // repeat loop
+                    // prevProb changes at start of loop
+                }
+            }
+
+            result = probCache.add(new BigDecimal(cumProb)).doubleValue();
+            if (memoizationKey != null) {
+                BINOMIAL_CUMULATIVE_PROBABILITY_MEMOIZATION_CACHE.put(memoizationKey, result);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Calculates the log10 of the multinomial coefficient. Designed to prevent
+     * overflows even with very large numbers.
+     *
+     * @param n total number of trials
+     * @param k array of any size with the number of successes for each grouping (k1, k2, k3, ..., km)
+     * @return
+     */
+    public static double log10MultinomialCoefficient(final int n, final int[] k) {
+        if ( n < 0 )
+            throw new IllegalArgumentException("n: Must have non-negative number of trials");
+        double denominator = 0.0;
+        int sum = 0;
+        for (int x : k) {
+            if ( x < 0 )
+                throw new IllegalArgumentException("x element of k: Must have non-negative observations of group");
+            if ( x > n )
+                throw new IllegalArgumentException("x element of k, n: Group observations must be bounded by k");
+            denominator += log10Factorial(x);
+            sum += x;
+        }
+        if ( sum != n )
+            throw new IllegalArgumentException("k and n: Sum of observations in multinomial must sum to total number of trials");
+        return log10Factorial(n) - denominator;
+    }
+
+    /**
+     * Computes the log10 of the multinomial distribution probability given a vector
+     * of log10 probabilities. Designed to prevent overflows even with very large numbers.
+     *
+     * @param n      number of trials
+     * @param k      array of number of successes for each possibility
+     * @param log10p array of log10 probabilities
+     * @return
+     */
+    public static double log10MultinomialProbability(final int n, final int[] k, final double[] log10p) {
+        if (log10p.length != k.length)
+            throw new IllegalArgumentException("p and k: Array of log10 probabilities must have the same size as the array of number of sucesses: " + log10p.length + ", " + k.length);
+        double log10Prod = 0.0;
+        for (int i = 0; i < log10p.length; i++) {
+            if ( log10p[i] > 1e-18 )
+                throw new IllegalArgumentException("log10p: Log-probability must be <= 0");
+            log10Prod += log10p[i] * k[i];
+        }
+        return log10MultinomialCoefficient(n, k) + log10Prod;
     }
 
     /**
@@ -430,7 +551,7 @@ public class MathUtils {
      * @param k an int[] of counts, where each element represents the number of times a certain outcome was observed
      * @return the multinomial of the specified configuration.
      */
-    public static double multinomialCoefficient(int[] k) {
+    public static double multinomialCoefficient(final int[] k) {
         int n = 0;
         for (int xi : k) {
             n += xi;
@@ -453,9 +574,9 @@ public class MathUtils {
      * @param p a double[] of probabilities, where each element represents the probability a given outcome can occur
      * @return the multinomial probability of the specified configuration.
      */
-    public static double multinomialProbability(int[] k, double[] p) {
+    public static double multinomialProbability(final int[] k, final double[] p) {
         if (p.length != k.length)
-            throw new UserException.BadArgumentValue("p and k", "Array of log10 probabilities must have the same size as the array of number of sucesses: " + p.length + ", " + k.length);
+            throw new IllegalArgumentException("p and k: Array of log10 probabilities must have the same size as the array of number of sucesses: " + p.length + ", " + k.length);
 
         int n = 0;
         double[] log10P = new double[p.length];
@@ -472,7 +593,7 @@ public class MathUtils {
      * @param x an byte[] of numbers
      * @return the RMS of the specified numbers.
      */
-    public static double rms(byte[] x) {
+    public static double rms(final byte[] x) {
         if (x.length == 0)
             return 0.0;
 
@@ -489,7 +610,7 @@ public class MathUtils {
      * @param x an int[] of numbers
      * @return the RMS of the specified numbers.
      */
-    public static double rms(int[] x) {
+    public static double rms(final int[] x) {
         if (x.length == 0)
             return 0.0;
 
@@ -506,7 +627,7 @@ public class MathUtils {
      * @param x a double[] of numbers
      * @return the RMS of the specified numbers.
      */
-    public static double rms(Double[] x) {
+    public static double rms(final Double[] x) {
         if (x.length == 0)
             return 0.0;
 
@@ -517,7 +638,7 @@ public class MathUtils {
         return Math.sqrt(rms);
     }
 
-    public static double rms(Collection<Integer> l) {
+    public static double rms(final Collection<Integer> l) {
         if (l.size() == 0)
             return 0.0;
 
@@ -536,7 +657,7 @@ public class MathUtils {
         return dist;
     }
 
-    public static double round(double num, int digits) {
+    public static double round(final double num, final int digits) {
         double result = num * Math.pow(10.0, (double) digits);
         result = Math.round(result);
         result = result / Math.pow(10.0, (double) digits);
@@ -550,20 +671,29 @@ public class MathUtils {
      * @param takeLog10OfOutput if true, the output will be transformed back into log10 units
      * @return a newly allocated array corresponding the normalized values in array, maybe log10 transformed
      */
-    public static double[] normalizeFromLog10(double[] array, boolean takeLog10OfOutput) {
+    public static double[] normalizeFromLog10(final double[] array, final boolean takeLog10OfOutput) {
         return normalizeFromLog10(array, takeLog10OfOutput, false);
     }
 
-    public static double[] normalizeFromLog10(double[] array, boolean takeLog10OfOutput, boolean keepInLogSpace) {
-
+    /**
+     * See #normalizeFromLog10 but with the additional option to use an approximation that keeps the calculation always in log-space
+     *
+     * @param array
+     * @param takeLog10OfOutput
+     * @param keepInLogSpace
+     *
+     * @return
+     */
+    public static double[] normalizeFromLog10(final double[] array, final boolean takeLog10OfOutput, final boolean keepInLogSpace) {
         // for precision purposes, we need to add (or really subtract, since they're
         // all negative) the largest value; also, we need to convert to normal-space.
         double maxValue = arrayMax(array);
 
         // we may decide to just normalize in log space without converting to linear space
         if (keepInLogSpace) {
-            for (int i = 0; i < array.length; i++)
+            for (int i = 0; i < array.length; i++) {
                 array[i] -= maxValue;
+            }
             return array;
         }
 
@@ -579,8 +709,12 @@ public class MathUtils {
             sum += normalized[i];
         for (int i = 0; i < array.length; i++) {
             double x = normalized[i] / sum;
-            if (takeLog10OfOutput)
+            if (takeLog10OfOutput) {
                 x = Math.log10(x);
+                if ( x < LOG10_P_OF_ZERO || Double.isInfinite(x) )
+                    x = array[i] - maxValue;
+            }
+
             normalized[i] = x;
         }
 
@@ -593,8 +727,32 @@ public class MathUtils {
      * @param array the array to be normalized
      * @return a newly allocated array corresponding the normalized values in array
      */
-    public static double[] normalizeFromLog10(double[] array) {
+    public static double[] normalizeFromLog10(final double[] array) {
         return normalizeFromLog10(array, false);
+    }
+
+    /**
+     * normalizes the real-space probability array.
+     *
+     * Does not assume anything about the values in the array, beyond that no elements are below 0.  It's ok
+     * to have values in the array of > 1, or have the sum go above 0.
+     *
+     * @param array the array to be normalized
+     * @return a newly allocated array corresponding the normalized values in array
+     */
+    @Requires("array != null")
+    @Ensures({"result != null"})
+    public static double[] normalizeFromRealSpace(final double[] array) {
+        if ( array.length == 0 )
+            return array;
+
+        final double sum = sum(array);
+        final double[] normalized = new double[array.length];
+        if ( sum < 0.0 ) throw new IllegalArgumentException("Values in probability array sum to a negative number " + sum);
+        for ( int i = 0; i < array.length; i++ ) {
+            normalized[i] = array[i] / sum;
+        }
+        return normalized;
     }
 
     public static int maxElementIndex(final double[] array) {
@@ -618,7 +776,11 @@ public class MathUtils {
         return maxElementIndex(array, array.length);
     }
 
-    public static int maxElementIndex(final int[] array, int endIndex) {
+    public static int maxElementIndex(final byte[] array) {
+        return maxElementIndex(array, array.length);
+    }
+
+    public static int maxElementIndex(final int[] array, final int endIndex) {
         if (array == null || array.length == 0)
             throw new IllegalArgumentException("Array cannot be null!");
 
@@ -631,6 +793,24 @@ public class MathUtils {
         return maxI;
     }
 
+    public static int maxElementIndex(final byte[] array, final int endIndex) {
+        if (array == null || array.length == 0)
+            throw new IllegalArgumentException("Array cannot be null!");
+
+        int maxI = 0;
+        for (int i = 1; i < endIndex; i++) {
+            if (array[i] > array[maxI])
+                maxI = i;
+        }
+
+        return maxI;
+    }
+
+    public static int arrayMax(final int[] array) {
+        return array[maxElementIndex(array)];
+    }
+
+
     public static double arrayMax(final double[] array) {
         return array[maxElementIndex(array)];
     }
@@ -639,19 +819,61 @@ public class MathUtils {
         return array[maxElementIndex(array, endIndex)];
     }
 
-    public static double arrayMin(double[] array) {
+    public static double arrayMin(final double[] array) {
         return array[minElementIndex(array)];
     }
 
-    public static int arrayMin(int[] array) {
+    public static int arrayMin(final int[] array) {
         return array[minElementIndex(array)];
     }
 
-    public static byte arrayMin(byte[] array) {
+    public static byte arrayMin(final byte[] array) {
         return array[minElementIndex(array)];
     }
 
-    public static int minElementIndex(double[] array) {
+    /**
+     * Compute the min element of a List<Integer>
+     * @param array a non-empty list of integer
+     * @return the min
+     */
+    public static int arrayMin(final List<Integer> array) {
+        if ( array == null || array.isEmpty() ) throw new IllegalArgumentException("Array must be non-null and non-empty");
+        int min = array.get(0);
+        for ( final int i : array )
+            if ( i < min ) min = i;
+        return min;
+    }
+
+    /**
+     * Compute the median element of the list of integers
+     * @param array a list of integers
+     * @return the median element
+     */
+    public static <T extends Comparable<? super T>> T median(final List<T> array) {
+         /* TODO -- from Valentin
+        the current implementation is not the usual median when the input is of even length. More concretely it returns the ith element of the list where i = floor(input.size() / 2).
+
+        But actually that is not the "usual" definition of a median, as it is supposed to return the average of the two middle values when the sample length is an even number (i.e. median(1,2,3,4,5,6) == 3.5). [Sources: R and wikipedia]
+
+        My suggestion for a solution is then:
+
+        unify median and medianDoubles to public static <T extends Number> T median(Collection<T>)
+        check on null elements and throw an exception if there are any or perhaps return a null; documented in the javadoc.
+        relocate, rename and refactor MathUtils.median(X) to Utils.ithElement(X,X.size()/2)
+        In addition, the current median implementation sorts the whole input list witch is O(n log n). However find out the ith element (thus calculate the median) can be done in O(n)
+        */
+        if ( array == null ) throw new IllegalArgumentException("Array must be non-null");
+        final int size = array.size();
+        if ( size == 0 ) throw new IllegalArgumentException("Array cannot have size 0");
+        else if ( size == 1 ) return array.get(0);
+        else {
+            final ArrayList<T> sorted = new ArrayList<>(array);
+            Collections.sort(sorted);
+            return sorted.get(size / 2);
+        }
+    }
+
+    public static int minElementIndex(final double[] array) {
         if (array == null || array.length == 0)
             throw new IllegalArgumentException("Array cannot be null!");
 
@@ -664,7 +886,7 @@ public class MathUtils {
         return minI;
     }
 
-    public static int minElementIndex(byte[] array) {
+    public static int minElementIndex(final byte[] array) {
         if (array == null || array.length == 0)
             throw new IllegalArgumentException("Array cannot be null!");
 
@@ -677,7 +899,7 @@ public class MathUtils {
         return minI;
     }
 
-    public static int minElementIndex(int[] array) {
+    public static int minElementIndex(final int[] array) {
         if (array == null || array.length == 0)
             throw new IllegalArgumentException("Array cannot be null!");
 
@@ -690,7 +912,7 @@ public class MathUtils {
         return minI;
     }
 
-    public static int arrayMaxInt(List<Integer> array) {
+    public static int arrayMaxInt(final List<Integer> array) {
         if (array == null)
             throw new IllegalArgumentException("Array cannot be null!");
         if (array.size() == 0)
@@ -702,19 +924,15 @@ public class MathUtils {
         return m;
     }
 
-    public static double arrayMaxDouble(List<Double> array) {
-        if (array == null)
-            throw new IllegalArgumentException("Array cannot be null!");
-        if (array.size() == 0)
-            throw new IllegalArgumentException("Array size cannot be 0!");
-
-        double m = array.get(0);
-        for (double e : array)
-            m = Math.max(m, e);
-        return m;
+    public static int sum(final List<Integer> list ) {
+        int sum = 0;
+        for ( Integer i : list ) {
+          sum += i;
+        }
+        return sum;
     }
 
-    public static double average(List<Long> vals, int maxI) {
+    public static double average(final List<Long> vals, final int maxI) {
         long sum = 0L;
 
         int i = 0;
@@ -723,209 +941,16 @@ public class MathUtils {
                 break;
             sum += x;
             i++;
-            //System.out.printf(" %d/%d", sum, i);
         }
-
-        //System.out.printf("Sum = %d, n = %d, maxI = %d, avg = %f%n", sum, i, maxI, (1.0 * sum) / i);
 
         return (1.0 * sum) / i;
     }
 
-    public static double averageDouble(List<Double> vals, int maxI) {
-        double sum = 0.0;
-
-        int i = 0;
-        for (double x : vals) {
-            if (i > maxI)
-                break;
-            sum += x;
-            i++;
-        }
-        return (1.0 * sum) / i;
-    }
-
-    public static double average(List<Long> vals) {
+    public static double average(final List<Long> vals) {
         return average(vals, vals.size());
     }
 
-    public static double average(int[] x) {
-        int sum = 0;
-        for (int v : x)
-            sum += v;
-        return (double) sum / x.length;
-    }
-
-    public static byte average(byte[] vals) {
-        int sum = 0;
-        for (byte v : vals) {
-            sum += v;
-        }
-        return (byte) Math.floor(sum / vals.length);
-    }
-
-    public static double averageDouble(List<Double> vals) {
-        return averageDouble(vals, vals.size());
-    }
-
-    // Java Generics can't do primitive types, so I had to do this the simplistic way
-
-    public static Integer[] sortPermutation(final int[] A) {
-        class comparator implements Comparator<Integer> {
-            public int compare(Integer a, Integer b) {
-                if (A[a.intValue()] < A[b.intValue()]) {
-                    return -1;
-                }
-                if (A[a.intValue()] == A[b.intValue()]) {
-                    return 0;
-                }
-                if (A[a.intValue()] > A[b.intValue()]) {
-                    return 1;
-                }
-                return 0;
-            }
-        }
-        Integer[] permutation = new Integer[A.length];
-        for (int i = 0; i < A.length; i++) {
-            permutation[i] = i;
-        }
-        Arrays.sort(permutation, new comparator());
-        return permutation;
-    }
-
-    public static Integer[] sortPermutation(final double[] A) {
-        class comparator implements Comparator<Integer> {
-            public int compare(Integer a, Integer b) {
-                if (A[a.intValue()] < A[b.intValue()]) {
-                    return -1;
-                }
-                if (A[a.intValue()] == A[b.intValue()]) {
-                    return 0;
-                }
-                if (A[a.intValue()] > A[b.intValue()]) {
-                    return 1;
-                }
-                return 0;
-            }
-        }
-        Integer[] permutation = new Integer[A.length];
-        for (int i = 0; i < A.length; i++) {
-            permutation[i] = i;
-        }
-        Arrays.sort(permutation, new comparator());
-        return permutation;
-    }
-
-    public static <T extends Comparable> Integer[] sortPermutation(List<T> A) {
-        final Object[] data = A.toArray();
-
-        class comparator implements Comparator<Integer> {
-            public int compare(Integer a, Integer b) {
-                return ((T) data[a]).compareTo(data[b]);
-            }
-        }
-        Integer[] permutation = new Integer[A.size()];
-        for (int i = 0; i < A.size(); i++) {
-            permutation[i] = i;
-        }
-        Arrays.sort(permutation, new comparator());
-        return permutation;
-    }
-
-    public static int[] permuteArray(int[] array, Integer[] permutation) {
-        int[] output = new int[array.length];
-        for (int i = 0; i < output.length; i++) {
-            output[i] = array[permutation[i]];
-        }
-        return output;
-    }
-
-    public static double[] permuteArray(double[] array, Integer[] permutation) {
-        double[] output = new double[array.length];
-        for (int i = 0; i < output.length; i++) {
-            output[i] = array[permutation[i]];
-        }
-        return output;
-    }
-
-    public static Object[] permuteArray(Object[] array, Integer[] permutation) {
-        Object[] output = new Object[array.length];
-        for (int i = 0; i < output.length; i++) {
-            output[i] = array[permutation[i]];
-        }
-        return output;
-    }
-
-    public static String[] permuteArray(String[] array, Integer[] permutation) {
-        String[] output = new String[array.length];
-        for (int i = 0; i < output.length; i++) {
-            output[i] = array[permutation[i]];
-        }
-        return output;
-    }
-
-    public static <T> List<T> permuteList(List<T> list, Integer[] permutation) {
-        List<T> output = new ArrayList<T>();
-        for (int i = 0; i < permutation.length; i++) {
-            output.add(list.get(permutation[i]));
-        }
-        return output;
-    }
-
-    /**
-     * Draw N random elements from list.
-     */
-    public static <T> List<T> randomSubset(List<T> list, int N) {
-        if (list.size() <= N) {
-            return list;
-        }
-
-        int idx[] = new int[list.size()];
-        for (int i = 0; i < list.size(); i++) {
-            idx[i] = GenomeAnalysisEngine.getRandomGenerator().nextInt();
-        }
-
-        Integer[] perm = sortPermutation(idx);
-
-        List<T> ans = new ArrayList<T>();
-        for (int i = 0; i < N; i++) {
-            ans.add(list.get(perm[i]));
-        }
-
-        return ans;
-    }
-
-    /**
-     * Draw N random elements from an array.
-     *
-     * @param array your objects
-     * @param n     number of elements to select at random from the list
-     * @return a new list with the N randomly chosen elements from list
-     */
-    @Requires({"array != null", "n>=0"})
-    @Ensures({"result != null", "result.length == Math.min(n, array.length)"})
-    public static Object[] randomSubset(final Object[] array, final int n) {
-        if (array.length <= n)
-            return array.clone();
-
-        Object[] shuffledArray = arrayShuffle(array);
-        Object[] result = new Object[n];
-        System.arraycopy(shuffledArray, 0, result, 0, n);
-        return result;
-    }
-
-    public static double percentage(double x, double base) {
-        return (base > 0 ? (x / base) * 100.0 : 0);
-    }
-
-    public static double percentage(int x, int base) {
-        return (base > 0 ? ((double) x / (double) base) * 100.0 : 0);
-    }
-
-    public static double percentage(long x, long base) {
-        return (base > 0 ? ((double) x / (double) base) * 100.0 : 0);
-    }
-
-    public static int countOccurrences(char c, String s) {
+    public static int countOccurrences(final char c, final String s) {
         int count = 0;
         for (int i = 0; i < s.length(); i++) {
             count += s.charAt(i) == c ? 1 : 0;
@@ -953,27 +978,16 @@ public class MathUtils {
         return count;
     }
 
-    /**
-     * Returns the top (larger) N elements of the array. Naive n^2 implementation (Selection Sort).
-     * Better than sorting if N (number of elements to return) is small
-     *
-     * @param array the array
-     * @param n     number of top elements to return
-     * @return the n larger elements of the array
-     */
-    public static Collection<Double> getNMaxElements(double[] array, int n) {
-        ArrayList<Double> maxN = new ArrayList<Double>(n);
-        double lastMax = Double.MAX_VALUE;
-        for (int i = 0; i < n; i++) {
-            double max = Double.MIN_VALUE;
-            for (double x : array) {
-                max = Math.min(lastMax, Math.max(x, max));
-            }
-            maxN.add(max);
-            lastMax = max;
+    public static int countOccurrences(final boolean element, final boolean[] array) {
+        int count = 0;
+        for (final boolean b : array) {
+            if (element == b)
+                count++;
         }
-        return maxN;
+
+        return count;
     }
+
 
     /**
      * Returns n random indices drawn with replacement from the range 0..(k-1)
@@ -982,7 +996,7 @@ public class MathUtils {
      * @param k the number of random indices to draw (with replacement)
      * @return a list of k random indices ranging from 0 to (n-1) with possible duplicates
      */
-    static public ArrayList<Integer> sampleIndicesWithReplacement(int n, int k) {
+    static public ArrayList<Integer> sampleIndicesWithReplacement(final int n, final int k) {
 
         ArrayList<Integer> chosen_balls = new ArrayList<Integer>(k);
         for (int i = 0; i < k; i++) {
@@ -1001,7 +1015,7 @@ public class MathUtils {
      * @param k the number of random indices to draw (without replacement)
      * @return a list of k random indices ranging from 0 to (n-1) without duplicates
      */
-    static public ArrayList<Integer> sampleIndicesWithoutReplacement(int n, int k) {
+    static public ArrayList<Integer> sampleIndicesWithoutReplacement(final int n, final int k) {
         ArrayList<Integer> chosen_balls = new ArrayList<Integer>(k);
 
         for (int i = 0; i < n; i++) {
@@ -1022,7 +1036,7 @@ public class MathUtils {
      * @param <T>     the template type of the ArrayList
      * @return a new ArrayList consisting of the elements at the specified indices
      */
-    static public <T> ArrayList<T> sliceListByIndices(List<Integer> indices, List<T> list) {
+    static public <T> ArrayList<T> sliceListByIndices(final List<Integer> indices, final List<T> list) {
         ArrayList<T> subset = new ArrayList<T>();
 
         for (int i : indices) {
@@ -1032,36 +1046,6 @@ public class MathUtils {
         return subset;
     }
 
-    public static Comparable orderStatisticSearch(int orderStat, List<Comparable> list) {
-        // this finds the order statistic of the list (kth largest element)
-        // the list is assumed *not* to be sorted
-
-        final Comparable x = list.get(orderStat);
-        ListIterator iterator = list.listIterator();
-        ArrayList lessThanX = new ArrayList();
-        ArrayList equalToX = new ArrayList();
-        ArrayList greaterThanX = new ArrayList();
-
-        for (Comparable y : list) {
-            if (x.compareTo(y) > 0) {
-                lessThanX.add(y);
-            }
-            else if (x.compareTo(y) < 0) {
-                greaterThanX.add(y);
-            }
-            else
-                equalToX.add(y);
-        }
-
-        if (lessThanX.size() > orderStat)
-            return orderStatisticSearch(orderStat, lessThanX);
-        else if (lessThanX.size() + equalToX.size() >= orderStat)
-            return orderStat;
-        else
-            return orderStatisticSearch(orderStat - lessThanX.size() - equalToX.size(), greaterThanX);
-
-    }
-
     /**
      * Given two log-probability vectors, compute log of vector product of them:
      * in Matlab notation, return log10(10.*x'*10.^y)
@@ -1069,7 +1053,7 @@ public class MathUtils {
      * @param y vector 2
      * @return a double representing log (dotProd(10.^x,10.^y)
      */
-    public static double logDotProduct(double [] x, double[] y) {
+    public static double logDotProduct(final double [] x, final double[] y) {
         if (x.length != y.length)
             throw new ReviewedStingException("BUG: Vectors of different lengths");
 
@@ -1084,56 +1068,60 @@ public class MathUtils {
 
 
     }
-    public static Object getMedian(List<Comparable> list) {
-        return orderStatisticSearch((int) Math.ceil(list.size() / 2), list);
-    }
 
-    public static byte getQScoreOrderStatistic(List<SAMRecord> reads, List<Integer> offsets, int k) {
-        // version of the order statistic calculator for SAMRecord/Integer lists, where the
-        // list index maps to a q-score only through the offset index
-        // returns the kth-largest q-score.
+    /**
+     * Check that the log10 prob vector vector is well formed
+     *
+     * @param vector
+     * @param expectedSize
+     * @param shouldSumToOne
+     *
+     * @return true if vector is well-formed, false otherwise
+     */
+    public static boolean goodLog10ProbVector(final double[] vector, final int expectedSize, final boolean shouldSumToOne) {
+        if ( vector.length != expectedSize ) return false;
 
-        if (reads.size() == 0) {
-            return 0;
+        for ( final double pr : vector ) {
+            if ( ! goodLog10Probability(pr) )
+                return false;
         }
 
-        ArrayList lessThanQReads = new ArrayList();
-        ArrayList equalToQReads = new ArrayList();
-        ArrayList greaterThanQReads = new ArrayList();
-        ArrayList lessThanQOffsets = new ArrayList();
-        ArrayList greaterThanQOffsets = new ArrayList();
+        if ( shouldSumToOne && compareDoubles(sumLog10(vector), 1.0, 1e-4) != 0 )
+            return false;
 
-        final byte qk = reads.get(k).getBaseQualities()[offsets.get(k)];
-
-        for (int iter = 0; iter < reads.size(); iter++) {
-            SAMRecord read = reads.get(iter);
-            int offset = offsets.get(iter);
-            byte quality = read.getBaseQualities()[offset];
-
-            if (quality < qk) {
-                lessThanQReads.add(read);
-                lessThanQOffsets.add(offset);
-            }
-            else if (quality > qk) {
-                greaterThanQReads.add(read);
-                greaterThanQOffsets.add(offset);
-            }
-            else {
-                equalToQReads.add(reads.get(iter));
-            }
-        }
-
-        if (lessThanQReads.size() > k)
-            return getQScoreOrderStatistic(lessThanQReads, lessThanQOffsets, k);
-        else if (equalToQReads.size() + lessThanQReads.size() >= k)
-            return qk;
-        else
-            return getQScoreOrderStatistic(greaterThanQReads, greaterThanQOffsets, k - lessThanQReads.size() - equalToQReads.size());
-
+        return true; // everything is good
     }
 
-    public static byte getQScoreMedian(List<SAMRecord> reads, List<Integer> offsets) {
-        return getQScoreOrderStatistic(reads, offsets, (int) Math.floor(reads.size() / 2.));
+    /**
+     * Checks that the result is a well-formed log10 probability
+     *
+     * @param result a supposedly well-formed log10 probability value.  By default allows
+     *               -Infinity values, as log10(0.0) == -Infinity.
+     * @return true if result is really well formed
+     */
+    public static boolean goodLog10Probability(final double result) {
+        return goodLog10Probability(result, true);
+    }
+
+    /**
+     * Checks that the result is a well-formed log10 probability
+     *
+     * @param result a supposedly well-formed log10 probability value
+     * @param allowNegativeInfinity should we consider a -Infinity value ok?
+     * @return true if result is really well formed
+     */
+    public static boolean goodLog10Probability(final double result, final boolean allowNegativeInfinity) {
+        return result <= 0.0 && result != Double.POSITIVE_INFINITY && (allowNegativeInfinity || result != Double.NEGATIVE_INFINITY) && ! Double.isNaN(result);
+    }
+
+    /**
+     * Checks that the result is a well-formed probability
+     *
+     * @param result a supposedly well-formed probability value
+     * @return true if result is really well formed
+     */
+    public static boolean goodProbability(final double result) {
+        return result >= 0.0 && result <= 1.0 && ! Double.isInfinite(result) && ! Double.isNaN(result);
     }
 
     /**
@@ -1199,55 +1187,10 @@ public class MathUtils {
     //
     // useful common utility routines
     //
-    public static double rate(long n, long d) {
-        return n / (1.0 * Math.max(d, 1));
-    }
-
-    public static double rate(int n, int d) {
-        return n / (1.0 * Math.max(d, 1));
-    }
-
-    public static long inverseRate(long n, long d) {
-        return n == 0 ? 0 : d / Math.max(n, 1);
-    }
-
-    public static long inverseRate(int n, int d) {
-        return n == 0 ? 0 : d / Math.max(n, 1);
-    }
-
-    public static double ratio(int num, int denom) {
-        return ((double) num) / (Math.max(denom, 1));
-    }
-
-    public static double ratio(long num, long denom) {
-        return ((double) num) / (Math.max(denom, 1));
-    }
 
     static public double max(double x0, double x1, double x2) {
         double a = Math.max(x0, x1);
         return Math.max(a, x2);
-    }
-
-    public static double phredScaleToProbability(byte q) {
-        return Math.pow(10, (-q) / 10.0);
-    }
-
-    public static double phredScaleToLog10Probability(byte q) {
-        return ((-q) / 10.0);
-    }
-
-    /**
-     * Returns the phred scaled value of probability p
-     *
-     * @param p probability (between 0 and 1).
-     * @return phred scaled probability of p
-     */
-    public static byte probabilityToPhredScale(double p) {
-        return (byte) ((-10) * Math.log10(p));
-    }
-
-    public static double log10ProbabilityToPhredScale(double log10p) {
-        return (-10) * log10p;
     }
 
     /**
@@ -1256,8 +1199,8 @@ public class MathUtils {
      * @param ln log(x)
      * @return log10(x)
      */
-    public static double lnToLog10(double ln) {
-        return ln * Math.log10(Math.exp(1));
+    public static double lnToLog10(final double ln) {
+        return ln * Math.log10(Math.E);
     }
 
     /**
@@ -1269,7 +1212,7 @@ public class MathUtils {
      * Efficient rounding functions to simplify the log gamma function calculation
      * double to long with 32 bit shift
      */
-    private static final int HI(double x) {
+    private static final int HI(final double x) {
         return (int) (Double.doubleToLongBits(x) >> 32);
     }
 
@@ -1277,7 +1220,7 @@ public class MathUtils {
      * Efficient rounding functions to simplify the log gamma function calculation
      * double to long without shift
      */
-    private static final int LO(double x) {
+    private static final int LO(final double x) {
         return (int) Double.doubleToLongBits(x);
     }
 
@@ -1285,7 +1228,7 @@ public class MathUtils {
      * Most efficent implementation of the lnGamma (FDLIBM)
      * Use via the log10Gamma wrapper method.
      */
-    private static double lnGamma(double x) {
+    private static double lnGamma(final double x) {
         double t, y, z, p, p1, p2, p3, q, r, w;
         int i;
 
@@ -1406,68 +1349,20 @@ public class MathUtils {
      * @param x the x parameter
      * @return the log10 of the gamma function at x.
      */
-    public static double log10Gamma(double x) {
+    public static double log10Gamma(final double x) {
         return lnToLog10(lnGamma(x));
     }
 
-    /**
-     * Calculates the log10 of the binomial coefficient. Designed to prevent
-     * overflows even with very large numbers.
-     *
-     * @param n total number of trials
-     * @param k number of successes
-     * @return the log10 of the binomial coefficient
-     */
-    public static double log10BinomialCoefficient(int n, int k) {
-        return log10Gamma(n + 1) - log10Gamma(k + 1) - log10Gamma(n - k + 1);
+    public static double factorial(final int x) {
+        // avoid rounding errors caused by fact that 10^log(x) might be slightly lower than x and flooring may produce 1 less than real value
+        return (double)Math.round(Math.pow(10, log10Factorial(x)));
     }
 
-    public static double log10BinomialProbability(int n, int k, double log10p) {
-        double log10OneMinusP = Math.log10(1 - Math.pow(10, log10p));
-        return log10BinomialCoefficient(n, k) + log10p * k + log10OneMinusP * (n - k);
-    }
-
-    /**
-     * Calculates the log10 of the multinomial coefficient. Designed to prevent
-     * overflows even with very large numbers.
-     *
-     * @param n total number of trials
-     * @param k array of any size with the number of successes for each grouping (k1, k2, k3, ..., km)
-     * @return
-     */
-    public static double log10MultinomialCoefficient(int n, int[] k) {
-        double denominator = 0.0;
-        for (int x : k) {
-            denominator += log10Gamma(x + 1);
-        }
-        return log10Gamma(n + 1) - denominator;
-    }
-
-    /**
-     * Computes the log10 of the multinomial distribution probability given a vector
-     * of log10 probabilities. Designed to prevent overflows even with very large numbers.
-     *
-     * @param n      number of trials
-     * @param k      array of number of successes for each possibility
-     * @param log10p array of log10 probabilities
-     * @return
-     */
-    public static double log10MultinomialProbability(int n, int[] k, double[] log10p) {
-        if (log10p.length != k.length)
-            throw new UserException.BadArgumentValue("p and k", "Array of log10 probabilities must have the same size as the array of number of sucesses: " + log10p.length + ", " + k.length);
-        double log10Prod = 0.0;
-        for (int i = 0; i < log10p.length; i++) {
-            log10Prod += log10p[i] * k[i];
-        }
-        return log10MultinomialCoefficient(n, k) + log10Prod;
-    }
-
-    public static double factorial(int x) {
-        return Math.pow(10, log10Gamma(x + 1));
-    }
-
-    public static double log10Factorial(int x) {
-        return log10Gamma(x + 1);
+    public static double log10Factorial(final int x) {
+        if (x >= log10FactorialCache.length || x < 0)
+            return log10Gamma(x + 1);
+        else
+            return log10FactorialCache[x];
     }
 
     /**
@@ -1479,57 +1374,20 @@ public class MathUtils {
      */
     @Requires("a.length == b.length")
     @Ensures("result.length == a.length")
-    public static int[] addArrays(int[] a, int[] b) {
+    public static int[] addArrays(final int[] a, final int[] b) {
         int[] c = new int[a.length];
         for (int i = 0; i < a.length; i++)
             c[i] = a[i] + b[i];
         return c;
     }
 
-    /**
-     * Quick implementation of the Knuth-shuffle algorithm to generate a random
-     * permutation of the given array.
-     *
-     * @param array the original array
-     * @return a new array with the elements shuffled
-     */
-    public static Object[] arrayShuffle(Object[] array) {
-        int n = array.length;
-        Object[] shuffled = array.clone();
-        for (int i = 0; i < n; i++) {
-            int j = i + GenomeAnalysisEngine.getRandomGenerator().nextInt(n - i);
-            Object tmp = shuffled[i];
-            shuffled[i] = shuffled[j];
-            shuffled[j] = tmp;
-        }
-        return shuffled;
-    }
-
-    /**
-     * Vector operations
-     *
-     * @param v1 first numerical array
-     * @param v2 second numerical array
-     * @return a new array with the elements added
-     */
-    public static <E extends Number> Double[] vectorSum(E v1[], E v2[]) {
-        if (v1.length != v2.length)
-            throw new UserException("BUG: vectors v1, v2 of different size in vectorSum()");
-
-        Double[] result = new Double[v1.length];
-        for (int k = 0; k < v1.length; k++)
-            result[k] = v1[k].doubleValue() + v2[k].doubleValue();
-
-        return result;
-    }
-
     /** Same routine, unboxed types for efficiency
      *
-     * @param x
-     * @param y
+     * @param x                 First vector
+     * @param y                 Second vector
      * @return Vector of same length as x and y so that z[k] = x[k]+y[k]
      */
-    public static double[] vectorSum(double[]x, double[] y) {
+    public static double[] vectorSum(final double[]x, final double[] y) {
         if (x.length != y.length)
             throw new ReviewedStingException("BUG: Lengths of x and y must be the same");
 
@@ -1540,45 +1398,121 @@ public class MathUtils {
         return result;
     }
 
+    /** Compute Z=X-Y for two numeric vectors X and Y
+     *
+     * @param x                 First vector
+     * @param y                 Second vector
+     * @return Vector of same length as x and y so that z[k] = x[k]-y[k]
+     */
+    public static int[] vectorDiff(final int[]x, final int[] y) {
+        if (x.length != y.length)
+            throw new ReviewedStingException("BUG: Lengths of x and y must be the same");
 
-    public static <E extends Number> Double[] scalarTimesVector(E a, E[] v1) {
-
-        Double result[] = new Double[v1.length];
-        for (int k = 0; k < v1.length; k++)
-            result[k] = a.doubleValue() * v1[k].doubleValue();
+        int[] result = new int[x.length];
+        for (int k=0; k <x.length; k++)
+            result[k] = x[k]-y[k];
 
         return result;
     }
 
-    public static <E extends Number> Double dotProduct(E[] v1, E[] v2) {
-        if (v1.length != v2.length)
-            throw new UserException("BUG: vectors v1, v2 of different size in vectorSum()");
+    /**
+     * Returns a series of integer values between start and stop, inclusive,
+     * expontentially distributed between the two.  That is, if there are
+     * ten values between 0-10 there will be 10 between 10-100.
+     *
+     * WARNING -- BADLY TESTED
+     * @param start
+     * @param stop
+     * @param eps
+     * @return
+     */
+    public static List<Integer> log10LinearRange(final int start, final int stop, final double eps) {
+        final LinkedList<Integer> values = new LinkedList<>();
+        final double log10range = Math.log10(stop - start);
 
-        Double result = 0.0;
-        for (int k = 0; k < v1.length; k++)
-            result += v1[k].doubleValue() * v2[k].doubleValue();
+        if ( start == 0 )
+            values.add(0);
 
-        return result;
+        double i = 0.0;
+        while ( i <= log10range ) {
+            final int index = (int)Math.round(Math.pow(10, i)) + start;
+            if ( index < stop && (values.peekLast() == null || values.peekLast() != index ) )
+                values.add(index);
+            i += eps;
+        }
 
+        if ( values.peekLast() == null || values.peekLast() != stop )
+            values.add(stop);
+
+        return values;
     }
 
-    public static double[] vectorLog10(double v1[]) {
-        double result[] = new double[v1.length];
-        for (int k = 0; k < v1.length; k++)
-            result[k] = Math.log10(v1[k]);
-
-        return result;
-
+    /**
+     * Compute in a numerical correct way the quantity log10(1-x)
+     *
+     * Uses the approximation log10(1-x) = log10(1/x - 1) + log10(x) to avoid very quick underflow
+     * in 1-x when x is very small
+     *
+     * @param x a positive double value between 0.0 and 1.0
+     * @return an estimate of log10(1-x)
+     */
+    @Requires("x >= 0.0 && x <= 1.0")
+    @Ensures("result <= 0.0")
+    public static double log10OneMinusX(final double x) {
+        if ( x == 1.0 )
+            return Double.NEGATIVE_INFINITY;
+        else if ( x == 0.0 )
+            return 0.0;
+        else {
+            final double d = Math.log10(1 / x - 1) + Math.log10(x);
+            return Double.isInfinite(d) || d > 0.0 ? 0.0 : d;
+        }
     }
 
-    // todo - silly overloading, just because Java can't unbox/box arrays of primitive types, and we can't do generics with primitive types!
-    public static Double[] vectorLog10(Double v1[]) {
-        Double result[] = new Double[v1.length];
-        for (int k = 0; k < v1.length; k++)
-            result[k] = Math.log10(v1[k]);
+    /**
+     * Draw N random elements from list
+     * @param list - the list from which to draw randomly
+     * @param N - the number of elements to draw
+     */
+    public static <T> List<T> randomSubset(final List<T> list, final int N) {
+        if (list.size() <= N) {
+            return list;
+        }
 
-        return result;
-
+        return sliceListByIndices(sampleIndicesWithoutReplacement(list.size(),N),list);
     }
 
+    /**
+     * Return the likelihood of observing the counts of categories having sampled a population
+     * whose categorial frequencies are distributed according to a Dirichlet distribution
+     * @param dirichletParams - params of the prior dirichlet distribution
+     * @param dirichletSum - the sum of those parameters
+     * @param counts - the counts of observation in each category
+     * @param countSum - the sum of counts (number of trials)
+     * @return - associated likelihood
+     */
+    public static double dirichletMultinomial(final double[] dirichletParams, final double dirichletSum,
+                                              final int[] counts, final int countSum) {
+        if ( dirichletParams.length != counts.length ) {
+            throw new IllegalStateException("The number of dirichlet parameters must match the number of categories");
+        }
+        // todo -- lots of lnGammas here. At some point we can safely switch to x * ( ln(x) - 1)
+        double likelihood = log10MultinomialCoefficient(countSum,counts);
+        likelihood += log10Gamma(dirichletSum);
+        likelihood -= log10Gamma(dirichletSum+countSum);
+        for ( int idx = 0; idx < counts.length; idx++ ) {
+            likelihood += log10Gamma(counts[idx] + dirichletParams[idx]);
+            likelihood -= log10Gamma(dirichletParams[idx]);
+        }
+
+        return likelihood;
+    }
+
+    public static double dirichletMultinomial(double[] params, int[] counts) {
+        return dirichletMultinomial(params,sum(params),counts,(int) sum(counts));
+    }
+
+    public static ExponentialDistribution exponentialDistribution( final double mean ) {
+        return new ExponentialDistributionImpl(mean);
+    }
 }

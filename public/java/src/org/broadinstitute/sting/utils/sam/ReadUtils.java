@@ -1,38 +1,39 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.sam;
 
 import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
 import net.sf.samtools.*;
+import org.apache.log4j.Logger;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
-import org.broadinstitute.sting.utils.GenomeLoc;
-import org.broadinstitute.sting.utils.MathUtils;
+import org.broadinstitute.sting.utils.*;
 import org.broadinstitute.sting.utils.collections.Pair;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
+import org.broadinstitute.sting.utils.exceptions.UserException;
 
 import java.io.File;
 import java.util.*;
@@ -45,6 +46,7 @@ import java.util.*;
  * @version 0.1
  */
 public class ReadUtils {
+    private final static Logger logger = Logger.getLogger(ReadUtils.class);
     
     private static final String OFFSET_OUT_OF_BOUNDS_EXCEPTION = "Offset cannot be greater than read length %d : %d";
     private static final String OFFSET_NOT_ZERO_EXCEPTION = "We ran past the end of the read and never found the offset, something went wrong!";
@@ -52,8 +54,17 @@ public class ReadUtils {
     private ReadUtils() {
     }
 
-    private static int DEFAULT_ADAPTOR_SIZE = 100;
-    public static int CLIPPING_GOAL_NOT_REACHED = -1;
+    private static final int DEFAULT_ADAPTOR_SIZE = 100;
+    public static final int CLIPPING_GOAL_NOT_REACHED = -1;
+
+    public static int getMeanRepresentativeReadCount(GATKSAMRecord read) {
+        if (!read.isReducedRead())
+            return 1;
+
+        // compute mean representative read counts
+        final int[] counts = read.getReducedReadCounts();
+        return (int)Math.round((double)MathUtils.sum(counts)/counts.length);
+    }
 
     /**
      * A marker to tell which end of the read has been clipped
@@ -139,9 +150,16 @@ public class ReadUtils {
      * @return a SAMFileWriter with the compression level if it is a bam.
      */
     public static SAMFileWriter createSAMFileWriterWithCompression(SAMFileHeader header, boolean presorted, String file, int compression) {
+        validateCompressionLevel(compression);
         if (file.endsWith(".bam"))
-            return new SAMFileWriterFactory().makeBAMWriter(header, presorted, new File(file), compression);
-        return new SAMFileWriterFactory().makeSAMOrBAMWriter(header, presorted, new File(file));
+            return new SAMFileWriterFactory().setCreateIndex(true).makeBAMWriter(header, presorted, new File(file), compression);
+        return new SAMFileWriterFactory().setCreateIndex(true).makeSAMOrBAMWriter(header, presorted, new File(file));
+    }
+
+    public static int validateCompressionLevel(final int requestedCompressionLevel) {
+        if ( requestedCompressionLevel < 0 || requestedCompressionLevel > 9 )
+            throw new UserException.BadArgumentValue("compress", "Compression level must be 0-9 but got " + requestedCompressionLevel);
+        return requestedCompressionLevel;
     }
 
     /**
@@ -159,8 +177,8 @@ public class ReadUtils {
      * @return whether or not the base is in the adaptor
      */
     public static boolean isBaseInsideAdaptor(final GATKSAMRecord read, long basePos) {
-        Integer adaptorBoundary = getAdaptorBoundary(read);
-        if (adaptorBoundary == null || read.getInferredInsertSize() > DEFAULT_ADAPTOR_SIZE)
+        final int adaptorBoundary = read.getAdaptorBoundary();
+        if (adaptorBoundary == CANNOT_COMPUTE_ADAPTOR_BOUNDARY || read.getInferredInsertSize() > DEFAULT_ADAPTOR_SIZE)
             return false;
 
         return read.getReadNegativeStrandFlag() ? basePos <= adaptorBoundary : basePos >= adaptorBoundary;
@@ -189,65 +207,106 @@ public class ReadUtils {
      *   in these cases the adaptor boundary is at the start of the read plus the inferred insert size (plus one)
      *
      * @param read the read being tested for the adaptor boundary
-     * @return the reference coordinate for the adaptor boundary (effectively the first base IN the adaptor, closest to the read. NULL if the read is unmapped or the mate is mapped to another contig.
+     * @return the reference coordinate for the adaptor boundary (effectively the first base IN the adaptor, closest to the read.
+     * CANNOT_COMPUTE_ADAPTOR_BOUNDARY if the read is unmapped or the mate is mapped to another contig.
      */
-    public static Integer getAdaptorBoundary(final SAMRecord read) {
-        final int MAXIMUM_ADAPTOR_LENGTH = 8;
-        final int insertSize = Math.abs(read.getInferredInsertSize());    // the inferred insert size can be negative if the mate is mapped before the read (so we take the absolute value)
+    public static int getAdaptorBoundary(final SAMRecord read) {
+        if ( ! hasWellDefinedFragmentSize(read) ) {
+            return CANNOT_COMPUTE_ADAPTOR_BOUNDARY;
+        } else if ( read.getReadNegativeStrandFlag() ) {
+            return read.getMateAlignmentStart() - 1;           // case 1 (see header)
+        } else {
+            final int insertSize = Math.abs(read.getInferredInsertSize());    // the inferred insert size can be negative if the mate is mapped before the read (so we take the absolute value)
+            return read.getAlignmentStart() + insertSize + 1;  // case 2 (see header)
+        }
+    }
 
-        if (insertSize == 0 || read.getReadUnmappedFlag())                // no adaptors in reads with mates in another chromosome or unmapped pairs
-            return null;                                                  
-        
-        Integer adaptorBoundary;                                          // the reference coordinate for the adaptor boundary (effectively the first base IN the adaptor, closest to the read)
-        if (read.getReadNegativeStrandFlag())
-            adaptorBoundary = read.getMateAlignmentStart() - 1;           // case 1 (see header)
-        else
-            adaptorBoundary = read.getAlignmentStart() + insertSize + 1;  // case 2 (see header)
+    public static int CANNOT_COMPUTE_ADAPTOR_BOUNDARY = Integer.MIN_VALUE;
 
-        if ( (adaptorBoundary < read.getAlignmentStart() - MAXIMUM_ADAPTOR_LENGTH) || (adaptorBoundary > read.getAlignmentEnd() + MAXIMUM_ADAPTOR_LENGTH) )
-            adaptorBoundary = null;                                       // we are being conservative by not allowing the adaptor boundary to go beyond what we belive is the maximum size of an adaptor
-        
-        return adaptorBoundary;
+    /**
+     * Can the adaptor sequence of read be reliably removed from the read based on the alignment of
+     * read and its mate?
+     *
+     * @param read the read to check
+     * @return true if it can, false otherwise
+     */
+    public static boolean hasWellDefinedFragmentSize(final SAMRecord read) {
+        if ( read.getInferredInsertSize() == 0 )
+            // no adaptors in reads with mates in another chromosome or unmapped pairs
+            return false;
+        if ( ! read.getReadPairedFlag() )
+            // only reads that are paired can be adaptor trimmed
+            return false;
+        if ( read.getReadUnmappedFlag() || read.getMateUnmappedFlag() )
+            // only reads when both reads are mapped can be trimmed
+            return false;
+//        if ( ! read.getProperPairFlag() )
+//            // note this flag isn't always set properly in BAMs, can will stop us from eliminating some proper pairs
+//            // reads that aren't part of a proper pair (i.e., have strange alignments) can't be trimmed
+//            return false;
+        if ( read.getReadNegativeStrandFlag() == read.getMateNegativeStrandFlag() )
+            // sanity check on getProperPairFlag to ensure that read1 and read2 aren't on the same strand
+            return false;
+
+        if ( read.getReadNegativeStrandFlag() ) {
+            // we're on the negative strand, so our read runs right to left
+            return read.getAlignmentEnd() > read.getMateAlignmentStart();
+        } else {
+            // we're on the positive strand, so our mate should be to our right (his start + insert size should be past our start)
+            return read.getAlignmentStart() <= read.getMateAlignmentStart() + read.getInferredInsertSize();
+        }
     }
 
     /**
-     * is the read a 454 read ?
+     * is the read a 454 read?
      *
      * @param read the read to test
      * @return checks the read group tag PL for the default 454 tag
      */
-    public static boolean is454Read(SAMRecord read) {
-        return isPlatformRead(read, "454");
+    public static boolean is454Read(GATKSAMRecord read) {
+        return NGSPlatform.fromRead(read) == NGSPlatform.LS454;
     }
 
     /**
-     * is the read a SOLiD read ?
+     * is the read an IonTorrent read?
+     *
+     * @param read the read to test
+     * @return checks the read group tag PL for the default ion tag
+     */
+    public static boolean isIonRead(GATKSAMRecord read) {
+        return NGSPlatform.fromRead(read) == NGSPlatform.ION_TORRENT;
+    }
+
+    /**
+     * is the read a SOLiD read?
      *
      * @param read the read to test
      * @return checks the read group tag PL for the default SOLiD tag
      */
-    public static boolean isSOLiDRead(SAMRecord read) {
-        return isPlatformRead(read, "SOLID");
+    public static boolean isSOLiDRead(GATKSAMRecord read) {
+        return NGSPlatform.fromRead(read) == NGSPlatform.SOLID;
     }
 
     /**
-     * is the read a SLX read ?
+     * is the read a SLX read?
      *
      * @param read the read to test
      * @return checks the read group tag PL for the default SLX tag
      */
-    public static boolean isSLXRead(SAMRecord read) {
-        return isPlatformRead(read, "ILLUMINA");
+    public static boolean isIlluminaRead(GATKSAMRecord read) {
+        return NGSPlatform.fromRead(read) == NGSPlatform.ILLUMINA;
     }
 
     /**
-     * checks if the read has a platform tag in the readgroup equal to 'name' ?
+     * checks if the read has a platform tag in the readgroup equal to 'name'.
+     * Assumes that 'name' is upper-cased.
      *
      * @param read the read to test
-     * @param name the platform name to test
+     * @param name the upper-cased platform name to test
      * @return whether or not name == PL tag in the read group of read
      */
-    public static boolean isPlatformRead(SAMRecord read, String name) {
+    public static boolean isPlatformRead(GATKSAMRecord read, String name) {
+
         SAMReadGroupRecord readGroup = read.getReadGroup();
         if (readGroup != null) {
             Object readPlatformAttr = readGroup.getAttribute("PL");
@@ -370,6 +429,11 @@ public class ReadUtils {
         return getReadCoordinateForReferenceCoordinate(read.getSoftStart(), read.getCigar(), refCoord, tail, false);
     }
 
+    public static int getReadCoordinateForReferenceCoordinateUpToEndOfRead(GATKSAMRecord read, int refCoord, ClippingTail tail) {
+        final int leftmostSafeVariantPosition = Math.max(read.getSoftStart(), refCoord);
+        return getReadCoordinateForReferenceCoordinate(read.getSoftStart(), read.getCigar(), leftmostSafeVariantPosition, tail, false);
+    }
+
     public static int getReadCoordinateForReferenceCoordinate(final int alignmentStart, final Cigar cigar, final int refCoord, final ClippingTail tail, final boolean allowGoalNotReached) {
         Pair<Integer, Boolean> result = getReadCoordinateForReferenceCoordinate(alignmentStart, cigar, refCoord, allowGoalNotReached);
         int readCoord = result.getFirst();
@@ -383,9 +447,9 @@ public class ReadUtils {
         // clipping the left tail and first base is insertion, go to the next read coordinate
         // with the same reference coordinate. Advance to the next cigar element, or to the
         // end of the read if there is no next element.
-        Pair<Boolean, CigarElement> firstElementIsInsertion = readStartsWithInsertion(cigar);
-        if (readCoord == 0 && tail == ClippingTail.LEFT_TAIL && firstElementIsInsertion.getFirst())
-            readCoord = Math.min(firstElementIsInsertion.getSecond().getLength(), cigar.getReadLength() - 1);
+        final CigarElement firstElementIsInsertion = readStartsWithInsertion(cigar);
+        if (readCoord == 0 && tail == ClippingTail.LEFT_TAIL && firstElementIsInsertion != null)
+            readCoord = Math.min(firstElementIsInsertion.getLength(), cigar.getReadLength() - 1);
 
         return readCoord;
     }
@@ -455,7 +519,7 @@ public class ReadUtils {
                     if (allowGoalNotReached) {
                         return new Pair<Integer, Boolean>(CLIPPING_GOAL_NOT_REACHED, false);
                     } else {
-                        throw new ReviewedStingException("Reference coordinate corresponds to a non-existent base in the read. This should never happen -- call Mauricio");
+                        throw new ReviewedStingException(String.format("Reference coordinate corresponds to a non-existent base in the read. This should never happen -- check read with alignment start: %s  and cigar: %s", alignmentStart, cigar));
                     }
                 }
 
@@ -476,7 +540,7 @@ public class ReadUtils {
                             if (allowGoalNotReached) {
                                 return new Pair<Integer, Boolean>(CLIPPING_GOAL_NOT_REACHED, false);
                             } else {
-                                throw new ReviewedStingException("Reference coordinate corresponds to a non-existent base in the read. This should never happen -- call Mauricio");
+                                throw new ReviewedStingException(String.format("Reference coordinate corresponds to a non-existent base in the read. This should never happen -- check read with alignment start: %s  and cigar: %s", alignmentStart, cigar));
                             }
                         }
 
@@ -494,7 +558,7 @@ public class ReadUtils {
                 // If we reached our goal inside a deletion, but the deletion is the next cigar element then we need
                 // to add the shift of the current cigar element but go back to it's last element to return the last
                 // base before the deletion (see warning in function contracts)
-                else if (fallsInsideDeletion && !endsWithinCigar)
+                else if (fallsInsideDeletion && !endsWithinCigar && cigarElement.getOperator().consumesReadBases())
                     readBases += shift - 1;
 
                 // If we reached our goal inside a deletion then we must backtrack to the last base before the deletion
@@ -507,7 +571,7 @@ public class ReadUtils {
             if (allowGoalNotReached) {
                 return new Pair<Integer, Boolean>(CLIPPING_GOAL_NOT_REACHED, false);
             } else {
-                throw new ReviewedStingException("Somehow the requested coordinate is not covered by the read. Too many deletions?");
+                throw new ReviewedStingException("Somehow the requested coordinate is not covered by the read. Alignment " + alignmentStart + " | " + cigar);
             }
         }
 
@@ -553,27 +617,29 @@ public class ReadUtils {
         return true;
     }
 
-
     /**
-     * Checks if a read starts with an insertion. It looks beyond Hard and Soft clips
-     * if there are any.
-     *
-     * @param read
-     * @return A pair with the answer (true/false) and the element or null if it doesn't exist
+     * @see #readStartsWithInsertion(net.sf.samtools.Cigar, boolean) with ignoreClipOps set to true
      */
-    public static Pair<Boolean, CigarElement> readStartsWithInsertion(GATKSAMRecord read) {
-        return readStartsWithInsertion(read.getCigar());
+    public static CigarElement readStartsWithInsertion(final Cigar cigarForRead) {
+        return readStartsWithInsertion(cigarForRead, true);
     }
 
-    public static Pair<Boolean, CigarElement> readStartsWithInsertion(final Cigar cigar) {
-        for (CigarElement cigarElement : cigar.getCigarElements()) {
-            if (cigarElement.getOperator() == CigarOperator.INSERTION)
-                return new Pair<Boolean, CigarElement>(true, cigarElement);
+    /**
+     * Checks if a read starts with an insertion.
+     *
+     * @param cigarForRead    the CIGAR to evaluate
+     * @param ignoreSoftClipOps   should we ignore S operators when evaluating whether an I operator is at the beginning?  Note that H operators are always ignored.
+     * @return the element if it's a leading insertion or null otherwise
+     */
+    public static CigarElement readStartsWithInsertion(final Cigar cigarForRead, final boolean ignoreSoftClipOps) {
+        for ( final CigarElement cigarElement : cigarForRead.getCigarElements() ) {
+            if ( cigarElement.getOperator() == CigarOperator.INSERTION )
+                return cigarElement;
 
-            else if (cigarElement.getOperator() != CigarOperator.HARD_CLIP && cigarElement.getOperator() != CigarOperator.SOFT_CLIP)
+            else if ( cigarElement.getOperator() != CigarOperator.HARD_CLIP && ( !ignoreSoftClipOps || cigarElement.getOperator() != CigarOperator.SOFT_CLIP) )
                 break;
         }
-        return new Pair<Boolean, CigarElement>(false, null);
+        return null;
     }
 
     /**
@@ -822,4 +888,81 @@ public class ReadUtils {
         return events;
     }
 
+    /**
+     * Given a read, outputs the read bases in a string format
+     *
+     * @param read the read
+     * @return a string representation of the read bases
+     */
+    public static String convertReadBasesToString(GATKSAMRecord read) {
+        String bases = "";
+        for (byte b : read.getReadBases()) {
+            bases += (char) b;
+        }
+        return bases.toUpperCase();
+    }
+
+    /**
+     * Given a read, outputs the base qualities in a string format
+     *
+     * @param quals the read qualities
+     * @return a string representation of the base qualities
+     */
+    public static String convertReadQualToString(byte[] quals) {
+        String result = "";
+        for (byte b : quals) {
+            result += (char) (33 + b);
+        }
+        return result;
+    }
+
+    /**
+     * Given a read, outputs the base qualities in a string format
+     *
+     * @param read the read
+     * @return a string representation of the base qualities
+     */
+    public static String convertReadQualToString(GATKSAMRecord read) {
+        return convertReadQualToString(read.getBaseQualities());
+    }
+
+    /**
+     * Returns the reverse complement of the read bases
+     *
+     * @param bases the read bases
+     * @return the reverse complement of the read bases
+     */
+    public static String getBasesReverseComplement(byte[] bases) {
+        String reverse = "";
+        for (int i = bases.length-1; i >=0; i--) {
+            reverse += (char) BaseUtils.getComplement(bases[i]);
+        }
+        return reverse;
+    }
+
+    /**
+     * Returns the reverse complement of the read bases
+     *
+     * @param read the read
+     * @return the reverse complement of the read bases
+     */
+    public static String getBasesReverseComplement(GATKSAMRecord read) {
+        return getBasesReverseComplement(read.getReadBases());
+    }
+
+    /**
+     * Calculate the maximum read length from the given list of reads.
+     * @param reads list of reads
+     * @return      non-negative integer
+     */
+    @Ensures({"result >= 0"})
+    public static int getMaxReadLength( final List<GATKSAMRecord> reads ) {
+        if( reads == null ) { throw new IllegalArgumentException("Attempting to check a null list of reads."); }
+
+        int maxReadLength = 0;
+        for( final GATKSAMRecord read : reads ) {
+            maxReadLength = Math.max(maxReadLength, read.getReadLength());
+        }
+        return maxReadLength;
+    }
 }

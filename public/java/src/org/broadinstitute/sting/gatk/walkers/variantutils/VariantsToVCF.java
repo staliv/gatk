@@ -1,33 +1,34 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.variantutils;
 
 import net.sf.samtools.util.CloseableIterator;
 import org.broad.tribble.Feature;
 import org.broadinstitute.sting.commandline.*;
+import org.broadinstitute.sting.gatk.CommandLineGATK;
 import org.broadinstitute.sting.gatk.arguments.DbsnpArgumentCollection;
 import org.broadinstitute.sting.gatk.contexts.AlignmentContext;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
@@ -35,14 +36,23 @@ import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
 import org.broadinstitute.sting.gatk.refdata.VariantContextAdaptors;
 import org.broadinstitute.sting.gatk.refdata.tracks.RMDTrackBuilder;
 import org.broadinstitute.sting.gatk.refdata.utils.GATKFeature;
-import org.broadinstitute.sting.gatk.walkers.*;
+import org.broadinstitute.sting.gatk.walkers.Reference;
+import org.broadinstitute.sting.gatk.walkers.RodWalker;
+import org.broadinstitute.sting.gatk.walkers.Window;
+import org.broadinstitute.sting.gatk.walkers.annotator.VariantOverlapAnnotator;
 import org.broadinstitute.sting.utils.BaseUtils;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.SampleUtils;
 import org.broadinstitute.sting.utils.codecs.hapmap.RawHapMapFeature;
-import org.broadinstitute.sting.utils.codecs.vcf.*;
+import org.broadinstitute.sting.utils.help.HelpConstants;
+import org.broadinstitute.sting.utils.variant.GATKVCFUtils;
+import org.broadinstitute.sting.utils.variant.GATKVariantContextUtils;
+import org.broadinstitute.variant.vcf.*;
 import org.broadinstitute.sting.utils.exceptions.UserException;
-import org.broadinstitute.sting.utils.variantcontext.*;
+import org.broadinstitute.sting.utils.help.DocumentedGATKFeature;
+import org.broadinstitute.variant.variantcontext.*;
+import org.broadinstitute.variant.variantcontext.writer.VariantContextWriter;
+import org.broadinstitute.variant.variantcontext.writer.VariantContextWriterFactory;
 
 import java.io.File;
 import java.util.*;
@@ -53,17 +63,17 @@ import java.util.*;
  * <p>
  * Note that there must be a Tribble feature/codec for the file format as well as an adaptor.
  *
- * <h2>Input</h2>
+ * <h3>Input</h3>
  * <p>
  * A variant file to filter.
  * </p>
  *
- * <h2>Output</h2>
+ * <h3>Output</h3>
  * <p>
  * A VCF file.
  * </p>
  *
- * <h2>Examples</h2>
+ * <h3>Examples</h3>
  * <pre>
  * java -Xmx2g -jar GenomeAnalysisTK.jar \
  *   -R ref.fasta \
@@ -74,12 +84,13 @@ import java.util.*;
  * </pre>
  *
  */
+@DocumentedGATKFeature( groupName = HelpConstants.DOCS_CAT_VARMANIP, extraDocs = {CommandLineGATK.class} )
 @Reference(window=@Window(start=-40,stop=40))
 public class VariantsToVCF extends RodWalker<Integer, Integer> {
 
-    @Output(doc="File to which variants should be written",required=true)
-    protected VCFWriter baseWriter = null;
-    private SortingVCFWriter vcfwriter; // needed because hapmap/dbsnp indel records move
+    @Output(doc="File to which variants should be written")
+    protected VariantContextWriter baseWriter = null;
+    private VariantContextWriter vcfwriter; // needed because hapmap/dbsnp indel records move
 
     /**
      * Variants from this input file are used by this tool as input.
@@ -96,47 +107,36 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
     @Argument(fullName="sample", shortName="sample", doc="The sample name represented by the variant rod", required=false)
     protected String sampleName = null;
 
-    /**
-     * This argument is useful for fixing input VCFs with bad reference bases (the output will be a fixed version of the VCF).
-     */
-    @Argument(fullName="fixRef", shortName="fixRef", doc="Fix common reference base in case there's an indel without padding", required=false)
-    protected boolean fixReferenceBase = false;
-
     private Set<String> allowedGenotypeFormatStrings = new HashSet<String>();
     private boolean wroteHeader = false;
+    private Set<String> samples;
 
     // for dealing with indels in hapmap
     CloseableIterator<GATKFeature> dbsnpIterator = null;
+    VariantOverlapAnnotator variantOverlapAnnotator = null;
 
     public void initialize() {
-        vcfwriter = new SortingVCFWriter(baseWriter, 40, false);
+        vcfwriter = VariantContextWriterFactory.sortOnTheFly(baseWriter, 40, false);
+        variantOverlapAnnotator = new VariantOverlapAnnotator(dbsnp.dbsnp, getToolkit().getGenomeLocParser());
     }
 
     public Integer map(RefMetaDataTracker tracker, ReferenceContext ref, AlignmentContext context) {
         if ( tracker == null || !BaseUtils.isRegularBase(ref.getBase()) )
             return 0;
 
-        String rsID = dbsnp == null ? null : VCFUtils.rsIDOfFirstRealVariant(tracker.getValues(dbsnp.dbsnp, context.getLocation()), VariantContext.Type.SNP);
-
         Collection<VariantContext> contexts = getVariantContexts(tracker, ref);
 
         for ( VariantContext vc : contexts ) {
             VariantContextBuilder builder = new VariantContextBuilder(vc);
-            if ( rsID != null && vc.emptyID() ) {
-                builder.id(rsID).make();
-            }
 
             // set the appropriate sample name if necessary
             if ( sampleName != null && vc.hasGenotypes() && vc.hasGenotype(variants.getName()) ) {
-                Genotype g = Genotype.modifyName(vc.getGenotype(variants.getName()), sampleName);
+                Genotype g = new GenotypeBuilder(vc.getGenotype(variants.getName())).name(sampleName).make();
                 builder.genotypes(g);
             }
 
-            if ( fixReferenceBase ) {
-                builder.referenceBaseForIndel(ref.getBase());
-            }
-
-            writeRecord(builder.make(), tracker, ref.getLocus());
+            final VariantContext withID = variantOverlapAnnotator.annotateRsID(tracker, builder.make());
+            writeRecord(withID, tracker, ref.getLocus());
         }
 
         return 1;
@@ -161,8 +161,8 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
                             continue;
 
                         Map<String, Allele> alleleMap = new HashMap<String, Allele>(2);
-                        alleleMap.put(RawHapMapFeature.DELETION, Allele.create(Allele.NULL_ALLELE_STRING, dbsnpVC.isSimpleInsertion()));
-                        alleleMap.put(RawHapMapFeature.INSERTION, Allele.create(((RawHapMapFeature)record).getAlleles()[1], !dbsnpVC.isSimpleInsertion()));
+                        alleleMap.put(RawHapMapFeature.DELETION, Allele.create(ref.getBase(), dbsnpVC.isSimpleInsertion()));
+                        alleleMap.put(RawHapMapFeature.INSERTION, Allele.create((char)ref.getBase() + ((RawHapMapFeature)record).getAlleles()[1], !dbsnpVC.isSimpleInsertion()));
                         hapmap.setActualAlleles(alleleMap);
 
                         // also, use the correct positioning for insertions
@@ -192,7 +192,10 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
             if ( dbsnp == null )
                 throw new UserException.BadInput("No dbSNP rod was provided, but one is needed to decipher the correct indel alleles from the HapMap records");
 
-            RMDTrackBuilder builder = new RMDTrackBuilder(getToolkit().getReferenceDataSource().getReference().getSequenceDictionary(),getToolkit().getGenomeLocParser(),getToolkit().getArguments().unsafe);
+            RMDTrackBuilder builder = new RMDTrackBuilder(getToolkit().getReferenceDataSource().getReference().getSequenceDictionary(),
+                                                          getToolkit().getGenomeLocParser(),
+                                                          getToolkit().getArguments().unsafe,
+                                                          getToolkit().getArguments().disableAutoIndexCreationAndLockingWhenReadingRods);
             dbsnpIterator = builder.createInstanceOfTrack(VCFCodec.class, new File(dbsnp.dbsnp.getSource())).getIterator();
             // Note that we should really use some sort of seekable iterator here so that the search doesn't take forever
             // (but it's complicated because the hapmap location doesn't match the dbsnp location, so we don't know where to seek to)
@@ -214,9 +217,8 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
 
             // setup the header fields
             Set<VCFHeaderLine> hInfo = new HashSet<VCFHeaderLine>();
-            hInfo.addAll(VCFUtils.getHeaderFields(getToolkit(), Arrays.asList(variants.getName())));
-            //hInfo.add(new VCFHeaderLine("source", "VariantsToVCF"));
-            //hInfo.add(new VCFHeaderLine("reference", getToolkit().getArguments().referenceFile.getID()));
+            hInfo.addAll(GATKVCFUtils.getHeaderFields(getToolkit(), Arrays.asList(variants.getName())));
+            hInfo.add(VCFStandardHeaderLines.getFormatLine(VCFConstants.GENOTYPE_KEY));
 
             allowedGenotypeFormatStrings.add(VCFConstants.GENOTYPE_KEY);
             for ( VCFHeaderLine field : hInfo ) {
@@ -225,7 +227,7 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
                 }
             }
 
-            Set<String> samples = new LinkedHashSet<String>();
+            samples = new LinkedHashSet<String>();
             if ( sampleName != null ) {
                 samples.add(sampleName);
             } else {
@@ -248,7 +250,7 @@ public class VariantsToVCF extends RodWalker<Integer, Integer> {
             vcfwriter.writeHeader(new VCFHeader(hInfo, samples));
         }
 
-        vc = VariantContextUtils.purgeUnallowedGenotypeAttributes(vc, allowedGenotypeFormatStrings);
+        vc = GATKVariantContextUtils.purgeUnallowedGenotypeAttributes(vc, allowedGenotypeFormatStrings);
         vcfwriter.add(vc);
     }
 

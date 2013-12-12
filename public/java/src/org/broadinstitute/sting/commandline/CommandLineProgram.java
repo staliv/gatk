@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
@@ -32,6 +32,7 @@ import org.apache.log4j.PatternLayout;
 import org.broadinstitute.sting.gatk.CommandLineGATK;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 import org.broadinstitute.sting.utils.help.ApplicationDetails;
+import org.broadinstitute.sting.utils.help.HelpConstants;
 import org.broadinstitute.sting.utils.help.HelpFormatter;
 
 import java.io.IOException;
@@ -60,6 +61,11 @@ public abstract class CommandLineProgram {
     /** this is used to indicate if they've asked for help */
     @Argument(fullName = "help", shortName = "h", doc = "Generate this help message", required = false)
     public Boolean help = false;
+
+    /** This is used to indicate if they've asked for the version information */
+    @Argument(fullName = "version", shortName = "version", doc ="Output version information", required = false)
+    public Boolean version = false;
+
 
     /** our logging output patterns */
     private static final String patternString = "%-5p %d{HH:mm:ss,SSS} %C{1} - %m %n";
@@ -174,7 +180,7 @@ public abstract class CommandLineProgram {
             ParsingEngine parser = clp.parser = new ParsingEngine(clp);
             parser.addArgumentSource(clp.getClass());
 
-            Map<ArgumentMatchSource, List<String>> parsedArgs;
+            Map<ArgumentMatchSource, ParsedArgs> parsedArgs;
 
             // process the args
             if (clp.canAddArgumentsDynamically()) {
@@ -194,9 +200,12 @@ public abstract class CommandLineProgram {
                 clp.setupLoggerLevel(layout);
 
                 Class[] argumentSources = clp.getArgumentSources();
-                for (Class argumentSource : argumentSources)
+                    for (Class argumentSource : argumentSources)
                     parser.addArgumentSource(clp.getArgumentSourceName(argumentSource), argumentSource);
                 parsedArgs = parser.parse(args);
+
+                if (isVersionPresent(parser))
+                    printVersionAndExit();
 
                 if (isHelpPresent(parser))
                     printHelpAndExit(clp, parser);
@@ -237,7 +246,7 @@ public abstract class CommandLineProgram {
             }
         }
         catch (ArgumentException e) {
-            clp.parser.printHelp(clp.getApplicationDetails());
+            //clp.parser.printHelp(clp.getApplicationDetails());
             // Rethrow the exception to exit with an error.
             throw e;
         }
@@ -287,8 +296,8 @@ public abstract class CommandLineProgram {
      * a function used to indicate an error occurred in the command line tool
      */
     private static void printDocumentationReference() {
-        errorPrintf("Visit our wiki for extensive documentation http://www.broadinstitute.org/gsa/wiki%n");
-        errorPrintf("Visit our forum to view answers to commonly asked questions http://getsatisfaction.com/gsa%n");
+        errorPrintf("Visit our website and forum for extensive documentation and answers to %n");
+        errorPrintf("commonly asked questions " + HelpConstants.BASE_GATK_URL + "%n");
     }
 
 
@@ -313,6 +322,26 @@ public abstract class CommandLineProgram {
         parser.printHelp(clp.getApplicationDetails());
         System.exit(0);
     }
+
+    /**
+     * Do a cursory search for the argument "version".
+     *
+     * @param parser Parser
+     *
+     * @return True if version is present; false otherwise.
+     */
+    private static boolean isVersionPresent(ParsingEngine parser) {
+        return parser.isArgumentPresent("version");
+    }
+
+    /**
+     * Print help and exit.
+     */
+    private static void printVersionAndExit() {
+        System.out.println(CommandLineGATK.getVersionNumber().toString());
+        System.exit(0);
+    }
+
 
     private static void errorPrintf(String format, Object... s) {
         String formatted = String.format(format, s);
@@ -341,8 +370,8 @@ public abstract class CommandLineProgram {
         errorPrintf("------------------------------------------------------------------------------------------%n");
         errorPrintf("A GATK RUNTIME ERROR has occurred (version %s):%n", CommandLineGATK.getVersionNumber());
         errorPrintf("%n");
-        errorPrintf("Please visit the wiki to see if this is a known problem%n");
-        errorPrintf("If not, please post the error, with stack trace, to the GATK forum%n");
+        errorPrintf("This might be a bug. Please check the documentation guide to see if this is a known problem.%n");
+        errorPrintf("If not, please post the error message, with stack trace, to the GATK forum.%n");
         printDocumentationReference();
         if ( msg == null ) // some exceptions don't have detailed messages
             msg = "Code exception (see stack trace for error itself)";
@@ -358,32 +387,40 @@ public abstract class CommandLineProgram {
 
         errorPrintf("------------------------------------------------------------------------------------------%n");
         errorPrintf("A USER ERROR has occurred (version %s): %n", CommandLineGATK.getVersionNumber());
-        errorPrintf("The invalid arguments or inputs must be corrected before the GATK can proceed%n");
-        errorPrintf("Please do not post this error to the GATK forum%n");
         errorPrintf("%n");
-        errorPrintf("See the documentation (rerun with -h) for this tool to view allowable command-line arguments.%n");
+        errorPrintf("This means that one or more arguments or inputs in your command are incorrect.%n");
+        errorPrintf("The error message below tells you what is the problem.%n");
+        errorPrintf("%n");
+        errorPrintf("If the problem is an invalid argument, please check the online documentation guide%n");
+        errorPrintf("(or rerun your command with --help) to view allowable command-line arguments for this tool.%n");
+        errorPrintf("%n");
         printDocumentationReference();
+        errorPrintf("%n");
+        errorPrintf("Please do NOT post this error to the GATK forum unless you have really tried to fix it yourself.%n");
         errorPrintf("%n");
         errorPrintf("MESSAGE: %s%n", e.getMessage().trim());
         errorPrintf("------------------------------------------------------------------------------------------%n");
         System.exit(1);
     }
 
-    public static void exitSystemWithSamError(final Exception e) {
-        if ( e.getMessage() == null )
-            throw new ReviewedStingException("SamException found with no message!", e);
+    public static void exitSystemWithSamError(final Throwable t) {
+        if ( t.getMessage() == null )
+            throw new ReviewedStingException("SamException found with no message!", t);
 
         errorPrintf("------------------------------------------------------------------------------------------%n");
         errorPrintf("A BAM ERROR has occurred (version %s): %n", CommandLineGATK.getVersionNumber());
-        errorPrintf("The invalid inputs must be corrected before the GATK can proceed%n");
-        errorPrintf("Please do not post this error to the GATK forum until you have followed the instructions below%n");
         errorPrintf("%n");
-        errorPrintf("Please make sure that your BAM file is well-formed by running Picard's validator on it%n");
-        errorPrintf("(see http://picard.sourceforge.net/command-line-overview.shtml#ValidateSamFile for details)%n");
-        errorPrintf("Also, please ensure that your BAM index is not corrupted: delete the current one and regenerate it with 'samtools index'%n");
+        errorPrintf("This means that there is something wrong with the BAM file(s) you provided.%n");
+        errorPrintf("The error message below tells you what is the problem.%n");
+        errorPrintf("%n");
         printDocumentationReference();
         errorPrintf("%n");
-        errorPrintf("MESSAGE: %s%n", e.getMessage().trim());
+        errorPrintf("Please do NOT post this error to the GATK forum until you have followed these instructions:%n");
+        errorPrintf("- Make sure that your BAM file is well-formed by running Picard's validator on it%n");
+        errorPrintf("(see http://picard.sourceforge.net/command-line-overview.shtml#ValidateSamFile for details)%n");
+        errorPrintf("- Ensure that your BAM index is not corrupted: delete the current one and regenerate it with 'samtools index'%n");
+        errorPrintf("%n");
+        errorPrintf("MESSAGE: %s%n", t.getMessage().trim());
         errorPrintf("------------------------------------------------------------------------------------------%n");
         System.exit(1);
     }

@@ -1,33 +1,33 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.io.stubs;
 
 import org.broadinstitute.sting.commandline.*;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
-import org.broadinstitute.sting.utils.codecs.vcf.VCFWriter;
+import org.broadinstitute.variant.variantcontext.writer.VariantContextWriter;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 
 import java.io.File;
@@ -45,8 +45,9 @@ import java.util.List;
  * @version 0.1
  */
 public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
-    public static final String NO_HEADER_ARG_NAME = "NO_HEADER";
+    public static final String NO_HEADER_ARG_NAME = "no_cmdline_in_header";
     public static final String SITES_ONLY_ARG_NAME = "sites_only";
+    public static final String FORCE_BCF = "bcf";
     public static final HashSet<String> SUPPORTED_ZIPPED_SUFFIXES = new HashSet<String>();
 
     //
@@ -91,12 +92,16 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
      */
     @Override
     public boolean supports( Class type ) {
-        return VCFWriter.class.equals(type);
+        return VariantContextWriter.class.equals(type);
     }
 
     @Override
     public List<ArgumentDefinition> createArgumentDefinitions( ArgumentSource source ) {
-        return Arrays.asList( createDefaultArgumentDefinition(source),createNoHeaderArgumentDefinition(),createSitesOnlyArgumentDefinition());
+        return Arrays.asList(
+                createDefaultArgumentDefinition(source),
+                createNoCommandLineHeaderArgumentDefinition(),
+                createSitesOnlyArgumentDefinition(),
+                createBCFArgumentDefinition() );
     }
 
     /**
@@ -105,7 +110,7 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
      */
     @Override
     public boolean createsTypeDefault(ArgumentSource source) {
-        return source.isRequired();
+        return !source.isRequired() && source.defaultsToStdout();
     }
 
     @Override
@@ -114,10 +119,10 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     }
 
     @Override
-    public Object createTypeDefault(ParsingEngine parsingEngine,ArgumentSource source, Type type) {
-        if(!source.isRequired())
+    public Object createTypeDefault(ParsingEngine parsingEngine, ArgumentSource source, Type type) {
+        if(source.isRequired() || !source.defaultsToStdout())
             throw new ReviewedStingException("BUG: tried to create type default for argument type descriptor that can't support a type default.");        
-        VCFWriterStub stub = new VCFWriterStub(engine, defaultOutputStream, false, argumentSources, false, false);
+        VariantContextWriterStub stub = new VariantContextWriterStub(engine, defaultOutputStream, argumentSources);
         engine.addOutput(stub);
         return stub;
     }
@@ -133,23 +138,23 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     public Object parse( ParsingEngine parsingEngine, ArgumentSource source, Type type, ArgumentMatches matches )  {
         ArgumentDefinition defaultArgumentDefinition = createDefaultArgumentDefinition(source);
         // Get the filename for the genotype file, if it exists.  If not, we'll need to send output to out.
-        String writerFileName = getArgumentValue(defaultArgumentDefinition,matches);
-        File writerFile = writerFileName != null ? new File(writerFileName) : null;
+        ArgumentMatchValue writerFileName = getArgumentValue(defaultArgumentDefinition,matches);
+        File writerFile = writerFileName != null ? writerFileName.asFile() : null;
 
         // This parser has been passed a null filename and the GATK is not responsible for creating a type default for the object;
         // therefore, the user must have failed to specify a type default
-        if(writerFile == null && !source.isRequired())
+        if(writerFile == null && source.isRequired())
             throw new MissingArgumentValueException(defaultArgumentDefinition);
 
-        // Should we compress the output stream?
-        boolean compress = isCompressed(writerFileName);
-
-        boolean skipWritingHeader = argumentIsPresent(createNoHeaderArgumentDefinition(),matches);
-        boolean doNotWriteGenotypes = argumentIsPresent(createSitesOnlyArgumentDefinition(),matches);
-
         // Create a stub for the given object.
-        VCFWriterStub stub = (writerFile != null) ? new VCFWriterStub(engine, writerFile, compress, argumentSources, skipWritingHeader, doNotWriteGenotypes)
-                                                  : new VCFWriterStub(engine, defaultOutputStream, compress, argumentSources, skipWritingHeader, doNotWriteGenotypes);
+        final VariantContextWriterStub stub = (writerFile != null)
+                ? new VariantContextWriterStub(engine, writerFile, argumentSources)
+                : new VariantContextWriterStub(engine, defaultOutputStream, argumentSources);
+
+        stub.setCompressed(isCompressed(writerFileName == null ? null: writerFileName.asString()));
+        stub.setDoNotWriteGenotypes(argumentIsPresent(createSitesOnlyArgumentDefinition(),matches));
+        stub.setSkipWritingCommandLineHeader(argumentIsPresent(createNoCommandLineHeaderArgumentDefinition(),matches));
+        stub.setForceBCF(argumentIsPresent(createBCFArgumentDefinition(),matches));
 
         // WARNING: Side effects required by engine!
         parsingEngine.addTags(stub,getArgumentTags(matches));
@@ -159,10 +164,10 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     }
 
     /**
-     * Creates the optional compression level argument for the BAM file.
-     * @return Argument definition for the BAM file itself.  Will not be null.
+     * Creates the optional no_header argument for the VCF file.
+     * @return Argument definition for the VCF file itself.  Will not be null.
      */
-    private ArgumentDefinition createNoHeaderArgumentDefinition() {
+    private ArgumentDefinition createNoCommandLineHeaderArgumentDefinition() {
         return new ArgumentDefinition( ArgumentIOType.ARGUMENT,
                                        boolean.class,
                                        NO_HEADER_ARG_NAME,
@@ -179,8 +184,8 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     }
 
     /**
-     * Creates the optional compression level argument for the BAM file.
-     * @return Argument definition for the BAM file itself.  Will not be null.
+     * Creates the optional sites_only argument definition
+     * @return Argument definition for the VCF file itself.  Will not be null.
      */
     private ArgumentDefinition createSitesOnlyArgumentDefinition() {
         return new ArgumentDefinition( ArgumentIOType.ARGUMENT,
@@ -196,6 +201,26 @@ public class VCFWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor {
                                        null,
                                        null,
                                        null );
+    }
+
+    /**
+     * Creates the optional bcf argument definition
+     * @return Argument definition for the VCF file itself.  Will not be null.
+     */
+    private ArgumentDefinition createBCFArgumentDefinition() {
+        return new ArgumentDefinition( ArgumentIOType.ARGUMENT,
+                boolean.class,
+                FORCE_BCF,
+                FORCE_BCF,
+                "force BCF output, regardless of the file's extension",
+                false,
+                true,
+                false,
+                true,
+                null,
+                null,
+                null,
+                null );
     }
 
     /**

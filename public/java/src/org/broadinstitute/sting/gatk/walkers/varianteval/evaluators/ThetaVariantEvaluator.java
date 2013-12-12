@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.walkers.varianteval.evaluators;
 
 import org.broadinstitute.sting.gatk.contexts.AlignmentContext;
@@ -5,9 +30,9 @@ import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
 import org.broadinstitute.sting.gatk.walkers.varianteval.util.Analysis;
 import org.broadinstitute.sting.gatk.walkers.varianteval.util.DataPoint;
-import org.broadinstitute.sting.utils.variantcontext.Allele;
-import org.broadinstitute.sting.utils.variantcontext.Genotype;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
+import org.broadinstitute.variant.variantcontext.Allele;
+import org.broadinstitute.variant.variantcontext.Genotype;
+import org.broadinstitute.variant.variantcontext.VariantContext;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -41,7 +66,7 @@ public class ThetaVariantEvaluator extends VariantEvaluator {
         ConcurrentMap<String, Integer> alleleCounts = new ConcurrentHashMap<String, Integer>();
 
         int numHetsHere = 0;
-        float numGenosHere = 0;
+        int numGenosHere = 0;
         int numIndsHere = 0;
 
         for (final Genotype genotype : vc.getGenotypes()) {
@@ -56,7 +81,7 @@ public class ThetaVariantEvaluator extends VariantEvaluator {
                 //increment stats for pairwise mismatches
 
                 for (Allele allele : genotype.getAlleles()) {
-                    if (allele.isNonNull() && allele.isCalled()) {
+                    if (allele.isCalled()) {
                         String alleleString = allele.toString();
                         alleleCounts.putIfAbsent(alleleString, 0);
                         alleleCounts.put(alleleString, alleleCounts.get(alleleString) + 1);
@@ -68,7 +93,7 @@ public class ThetaVariantEvaluator extends VariantEvaluator {
             //only if have one called genotype at least
             this.numSites++;
 
-            this.totalHet += numHetsHere / numGenosHere;
+            this.totalHet += numHetsHere / (double)numGenosHere;
 
             //compute based on num sites
             float harmonicFactor = 0;
@@ -79,7 +104,7 @@ public class ThetaVariantEvaluator extends VariantEvaluator {
 
             //now compute pairwise mismatches
             float numPairwise = 0;
-            float numDiffs = 0;
+            int numDiffs = 0;
             for (String allele1 : alleleCounts.keySet()) {
                 int allele1Count = alleleCounts.get(allele1);
 

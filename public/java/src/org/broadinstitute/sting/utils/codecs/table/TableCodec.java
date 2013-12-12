@@ -1,14 +1,39 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils.codecs.table;
 
-import org.broad.tribble.Feature;
-import org.broad.tribble.readers.LineReader;
+import org.broad.tribble.AsciiFeatureCodec;
+import org.broad.tribble.readers.LineIterator;
 import org.broadinstitute.sting.gatk.refdata.ReferenceDependentFeatureCodec;
 import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.exceptions.UserException;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * Reads tab deliminated tabular text files
@@ -39,7 +64,7 @@ import java.util.Arrays;
  * @author Mark DePristo
  * @since 2009
  */
-public class TableCodec implements ReferenceDependentFeatureCodec {
+public class TableCodec extends AsciiFeatureCodec<TableFeature> implements ReferenceDependentFeatureCodec {
     final static protected String delimiterRegex = "\\s+";
     final static protected String headerDelimiter = "HEADER";
     final static protected String igvHeaderDelimiter = "track";
@@ -52,6 +77,10 @@ public class TableCodec implements ReferenceDependentFeatureCodec {
      */
     protected GenomeLocParser genomeLocParser;
 
+    public TableCodec() {
+        super(TableFeature.class);
+    }
+
     /**
      * Set the parser to use when resolving genetic data.
      * @param genomeLocParser The supplied parser.
@@ -61,52 +90,37 @@ public class TableCodec implements ReferenceDependentFeatureCodec {
         this.genomeLocParser =  genomeLocParser;
     }
 
-
     @Override
-    public Feature decodeLoc(String line) {
-        return decode(line);
-    }
-
-    @Override
-    public Feature decode(String line) {
+    public TableFeature decode(String line) {
         if (line.startsWith(headerDelimiter) || line.startsWith(commentDelimiter) || line.startsWith(igvHeaderDelimiter))
             return null;
         String[] split = line.split(delimiterRegex);
         if (split.length < 1)
             throw new IllegalArgumentException("TableCodec line = " + line + " doesn't appear to be a valid table format");
-        return new TableFeature(genomeLocParser.parseGenomeLoc(split[0]),Arrays.asList(split),header);
+        return new TableFeature(genomeLocParser.parseGenomeLoc(split[0]),Arrays.asList(split), header);
     }
 
     @Override
-    public Class<TableFeature> getFeatureType() {
-        return TableFeature.class;
-    }
-
-    @Override
-    public Object readHeader(LineReader reader) {
-        String line = "";
-        try {
-            boolean isFirst = true;
-            while ((line = reader.readLine()) != null) {
-                if ( isFirst && ! line.startsWith(headerDelimiter) && ! line.startsWith(commentDelimiter)) {
-                    throw new UserException.MalformedFile("TableCodec file does not have a header");
-                }
-		isFirst &= line.startsWith(commentDelimiter);
-                if (line.startsWith(headerDelimiter)) {
-                    if (header.size() > 0) throw new IllegalStateException("Input table file seems to have two header lines.  The second is = " + line);
-                    String spl[] = line.split(delimiterRegex);
-                    for (String s : spl) header.add(s);
-                    return header;
-                } else if (!line.startsWith(commentDelimiter)) {
-                    break;
-                }
+    public Object readActualHeader(final LineIterator reader) {
+        boolean isFirst = true;
+        while (reader.hasNext()) {
+            final String line = reader.peek(); // Peek to avoid reading non-header data
+            if ( isFirst && ! line.startsWith(headerDelimiter) && ! line.startsWith(commentDelimiter)) {
+                throw new UserException.MalformedFile("TableCodec file does not have a header");
             }
-        } catch (IOException e) {
-            throw new UserException.MalformedFile("unable to parse header from TableCodec file",e);
+            isFirst &= line.startsWith(commentDelimiter);
+            if (line.startsWith(headerDelimiter)) {
+                reader.next(); // "Commit" the peek
+                if (header.size() > 0) throw new IllegalStateException("Input table file seems to have two header lines.  The second is = " + line);
+                final String spl[] = line.split(delimiterRegex);
+                Collections.addAll(header, spl);
+                return header;
+            } else if (line.startsWith(commentDelimiter)) {
+                reader.next(); // "Commit" the peek
+            } else {
+                break;
+            }
         }
         return header;
     }
-
-    public boolean canDecode(final String potentialInput) { return false; }
-
 }

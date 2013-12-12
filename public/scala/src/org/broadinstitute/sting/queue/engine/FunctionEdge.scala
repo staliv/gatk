@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.engine
 
@@ -39,11 +40,6 @@ import org.apache.commons.lang.StringUtils
  */
 class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNode) extends QEdge with Logging {
   var runner: JobRunner[_] =_
-
-  /**
-   * The number of times this edge has been run.
-   */
-  var retries = 0
 
   /**
    * The depth of this edge in the graph.
@@ -87,14 +83,14 @@ class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNod
       runner.init()
       runner.start()
     } catch {
-      case e =>
+      case e: Throwable =>
         currentStatus = RunnerStatus.FAILED
         try {
           runner.cleanup()
           function.failOutputs.foreach(_.createNewFile())
           writeStackTrace(e)
         } catch {
-          case _ => /* ignore errors in the exception handler */
+          case _: Throwable => /* ignore errors in the exception handler */
         }
         logger.error("Error: " + function.description, e)
     }
@@ -114,7 +110,7 @@ class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNod
               runner.cleanup()
               function.failOutputs.foreach(_.createNewFile())
             } catch {
-              case _ => /* ignore errors in the error handler */
+              case _: Throwable => /* ignore errors in the error handler */
             }
             logger.error("Error: " + function.description)
             tailError()
@@ -123,19 +119,19 @@ class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNod
               runner.cleanup()
               function.doneOutputs.foreach(_.createNewFile())
             } catch {
-              case _ => /* ignore errors in the done handler */
+              case _: Throwable => /* ignore errors in the done handler */
             }
             logger.info("Done: " + function.description)
           }
         } catch {
-          case e =>
+          case e: Throwable =>
             currentStatus = RunnerStatus.FAILED
             try {
               runner.cleanup()
               function.failOutputs.foreach(_.createNewFile())
               writeStackTrace(e)
             } catch {
-              case _ => /* ignore errors in the exception handler */
+              case _: Throwable => /* ignore errors in the exception handler */
             }
             logger.error("Error retrieving status: " + function.description, e)
         }
@@ -168,6 +164,7 @@ class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNod
     currentStatus = RunnerStatus.PENDING
     if (cleanOutputs)
       function.deleteOutputs()
+    function.jobErrorLines = Nil
     runner = null
   }
 
@@ -189,6 +186,7 @@ class FunctionEdge(val function: QFunction, val inputs: QNode, val outputs: QNod
       val tailLines = IOUtils.tail(errorFile, maxLines)
       val nl = "%n".format()
       val summary = if (tailLines.size > maxLines) "Last %d lines".format(maxLines) else "Contents"
+      this.function.jobErrorLines = collection.JavaConversions.collectionAsScalaIterable(tailLines).toSeq
       logger.error("%s of %s:%n%s".format(summary, errorFile, StringUtils.join(tailLines, nl)))
     } else {
       logger.error("Unable to access log file: %s".format(errorFile))

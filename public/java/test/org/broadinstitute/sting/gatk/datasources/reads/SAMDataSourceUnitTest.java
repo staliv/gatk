@@ -1,64 +1,64 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.datasources.reads;
 
-import static org.testng.Assert.fail;
 import net.sf.picard.reference.IndexedFastaSequenceFile;
-import net.sf.samtools.SAMFileReader;
-import net.sf.samtools.SAMRecord;
+import net.sf.samtools.*;
 import org.broadinstitute.sting.BaseTest;
 import org.broadinstitute.sting.commandline.Tags;
 import org.broadinstitute.sting.gatk.arguments.ValidationExclusion;
 import org.broadinstitute.sting.gatk.filters.ReadFilter;
+import org.broadinstitute.sting.gatk.iterators.ReadTransformer;
 import org.broadinstitute.sting.gatk.iterators.StingSAMIterator;
 import org.broadinstitute.sting.gatk.resourcemanagement.ThreadAllocation;
-import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.GenomeLoc;
-import org.broadinstitute.sting.utils.fasta.CachingIndexedFastaSequenceFile;
+import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.exceptions.UserException;
+import org.broadinstitute.sting.utils.fasta.CachingIndexedFastaSequenceFile;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-
 import org.testng.annotations.Test;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Collections;
 import java.util.List;
 
+import static org.testng.Assert.*;
+
 /**
- * @author aaron
- * @version 1.0
- * @date Apr 8, 2009
  * <p/>
  * Class SAMDataSourceUnitTest
  * <p/>
  * The test of the SAMBAM simple data source.
  */
 public class SAMDataSourceUnitTest extends BaseTest {
+
+    // TODO: These legacy tests should really be replaced with a more comprehensive suite of tests for SAMDataSource
 
     private List<SAMReaderID> readers;
     private IndexedFastaSequenceFile seq;
@@ -111,7 +111,7 @@ public class SAMDataSourceUnitTest extends BaseTest {
                 new ArrayList<ReadFilter>(),
                 false);
 
-        Iterable<Shard> strat = data.createShardIteratorOverMappedReads(seq.getSequenceDictionary(),new LocusShardBalancer());
+        Iterable<Shard> strat = data.createShardIteratorOverMappedReads(new LocusShardBalancer());
         int count = 0;
 
         try {
@@ -142,5 +142,72 @@ public class SAMDataSourceUnitTest extends BaseTest {
             e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             fail("testLinearBreakIterateAll: We Should get a UserException.CouldNotReadInputFile exception");
         }
+    }
+
+    /** Test that we clear program records when requested */
+    @Test
+    public void testRemoveProgramRecords() {
+        logger.warn("Executing testRemoveProgramRecords");
+
+        // setup the data
+        readers.add(new SAMReaderID(new File(b37GoodBAM),new Tags()));
+
+        // use defaults
+        SAMDataSource data = new SAMDataSource(readers,
+                new ThreadAllocation(),
+                null,
+                genomeLocParser,
+                false,
+                SAMFileReader.ValidationStringency.SILENT,
+                null,
+                null,
+                new ValidationExclusion(),
+                new ArrayList<ReadFilter>(),
+                false);
+
+        List<SAMProgramRecord> defaultProgramRecords = data.getHeader().getProgramRecords();
+        assertTrue(defaultProgramRecords.size() != 0, "testRemoveProgramRecords: No program records found when using default constructor");
+
+        boolean removeProgramRecords = false;
+        data = new SAMDataSource(readers,
+                new ThreadAllocation(),
+                null,
+                genomeLocParser,
+                false,
+                SAMFileReader.ValidationStringency.SILENT,
+                null,
+                null,
+                new ValidationExclusion(),
+                new ArrayList<ReadFilter>(),
+                Collections.<ReadTransformer>emptyList(),
+                false,
+                (byte) -1,
+                removeProgramRecords,
+                false,
+                null);
+
+        List<SAMProgramRecord> dontRemoveProgramRecords = data.getHeader().getProgramRecords();
+        assertEquals(dontRemoveProgramRecords, defaultProgramRecords, "testRemoveProgramRecords: default program records differ from removeProgramRecords = false");
+
+        removeProgramRecords = true;
+        data = new SAMDataSource(readers,
+                new ThreadAllocation(),
+                null,
+                genomeLocParser,
+                false,
+                SAMFileReader.ValidationStringency.SILENT,
+                null,
+                null,
+                new ValidationExclusion(),
+                new ArrayList<ReadFilter>(),
+                Collections.<ReadTransformer>emptyList(),
+                false,
+                (byte) -1,
+                removeProgramRecords,
+                false,
+                null);
+
+        List<SAMProgramRecord> doRemoveProgramRecords = data.getHeader().getProgramRecords();
+        assertTrue(doRemoveProgramRecords.isEmpty(), "testRemoveProgramRecords: program records not cleared when removeProgramRecords = true");
     }
 }

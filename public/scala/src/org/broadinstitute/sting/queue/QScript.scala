@@ -1,33 +1,35 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue
 
 import engine.JobRunInfo
 import org.broadinstitute.sting.queue.function.QFunction
 import annotation.target.field
-import util.{StringFileConversions, PrimitiveOptionConversions, Logging}
+import util._
+import org.broadinstitute.sting.commandline.ArgumentSource
 
 /**
  * Defines a Queue pipeline as a collection of CommandLineFunctions.
@@ -103,9 +105,67 @@ trait QScript extends Logging with PrimitiveOptionConversions with StringFileCon
     this.functions ++= functions
   }
 
-  def addAll(functions: Seq[QFunction]) {
+  def addAll(functions: Traversable[QFunction]) {
     functions.foreach( f => add(f) )
   }
+
+  /**
+   * Convert all @Output files to remote output files.
+   * @param remoteFileConverter Converter for files to remote files.
+   */
+  def mkRemoteOutputs(remoteFileConverter: RemoteFileConverter) {
+    for (field <- outputFields) {
+      val fieldFile = ClassFieldCache.getFieldFile(this, field)
+      if (fieldFile != null && !fieldFile.isInstanceOf[RemoteFile]) {
+        val fieldName = ClassFieldCache.fullName(field)
+        val remoteFile = remoteFileConverter.convertToRemote(fieldFile, fieldName)
+        ClassFieldCache.setFieldValue(this, field, remoteFile)
+      }
+    }
+  }
+
+  /**
+   * Pull all remote files to the local disk
+   */
+  def pullInputs() {
+    val inputs = ClassFieldCache.getFieldFiles(this, inputFields)
+    for (remoteFile <- filterRemoteFiles(inputs)) {
+      logger.info("Pulling %s from %s".format(remoteFile.getAbsolutePath, remoteFile.remoteDescription))
+      remoteFile.pullToLocal()
+    }
+  }
+
+  /**
+   * Push all remote files from the local disk
+   */
+  def pushOutputs() {
+    val outputs = ClassFieldCache.getFieldFiles(this, outputFields)
+    for (remoteFile <- filterRemoteFiles(outputs)) {
+      logger.info("Pushing %s to %s".format(remoteFile.getAbsolutePath, remoteFile.remoteDescription))
+      remoteFile.pushToRemote()
+    }
+  }
+
+  private def filterRemoteFiles(fields: Seq[File]): Seq[RemoteFile] =
+    fields.filter(field => field != null && field.isInstanceOf[RemoteFile]).map(_.asInstanceOf[RemoteFile])
+  /**
+   * @return the inputs or null if there are no inputs
+   */
+  def remoteInputs: AnyRef = null
+
+  /**
+   * @return the outputs or null if there are no outputs
+   */
+  def remoteOutputs: AnyRef = null
+
+  /** The complete list of fields. */
+  def functionFields: Seq[ArgumentSource] = ClassFieldCache.classFunctionFields(this.getClass)
+  /** The @Input fields. */
+  def inputFields: Seq[ArgumentSource] = ClassFieldCache.classInputFields(this.getClass)
+  /** The @Output fields. */
+  def outputFields: Seq[ArgumentSource] = ClassFieldCache.classOutputFields(this.getClass)
+  /** The @Argument fields. */
+  def argumentFields: Seq[ArgumentSource] = ClassFieldCache.classArgumentFields(this.getClass)
 }
 
 object QScript {

@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
@@ -53,7 +53,7 @@ public abstract class ArgumentTypeDescriptor {
     /**
      * our log, which we want to capture anything from org.broadinstitute.sting
      */
-    protected static Logger logger = Logger.getLogger(ArgumentTypeDescriptor.class);
+    protected static final Logger logger = Logger.getLogger(ArgumentTypeDescriptor.class);
 
     /**
      * Fetch the given descriptor from the descriptor repository.
@@ -215,8 +215,8 @@ public abstract class ArgumentTypeDescriptor {
      * @param matches The matches for the given argument.
      * @return The value of the argument if available, or null if not present.
      */
-    protected String getArgumentValue( ArgumentDefinition definition, ArgumentMatches matches ) {
-        Collection<String> argumentValues = getArgumentValues( definition, matches );
+    protected ArgumentMatchValue getArgumentValue( ArgumentDefinition definition, ArgumentMatches matches ) {
+        Collection<ArgumentMatchValue> argumentValues = getArgumentValues( definition, matches );
         if( argumentValues.size() > 1 )
             throw new UserException.CommandLineException("Multiple values associated with given definition, but this argument expects only one: " + definition.fullName);
         return argumentValues.size() > 0 ? argumentValues.iterator().next() : null;
@@ -244,8 +244,8 @@ public abstract class ArgumentTypeDescriptor {
      * @param matches The matches for the given argument.
      * @return The value of the argument if available, or an empty collection if not present.
      */
-    protected Collection<String> getArgumentValues( ArgumentDefinition definition, ArgumentMatches matches ) {
-        Collection<String> values = new ArrayList<String>();
+    protected Collection<ArgumentMatchValue> getArgumentValues( ArgumentDefinition definition, ArgumentMatches matches ) {
+        Collection<ArgumentMatchValue> values = new ArrayList<ArgumentMatchValue>();
         for( ArgumentMatch match: matches ) {
             if( match.definition.equals(definition) )
                 values.addAll(match.values());
@@ -289,7 +289,7 @@ public abstract class ArgumentTypeDescriptor {
         return field.isAnnotationPresent(Hidden.class);
     }
 
-    public Class makeRawTypeIfNecessary(Type t) {
+    public static Class makeRawTypeIfNecessary(Type t) {
         if ( t == null )
             return null;
         else if ( t instanceof ParameterizedType )
@@ -298,6 +298,115 @@ public abstract class ArgumentTypeDescriptor {
             return (Class)t;
         } else {
             throw new IllegalArgumentException("Unable to determine Class-derived component type of field: " + t);
+        }
+    }
+
+    /**
+     * The actual argument parsing method.
+     * @param source             source
+     * @param type               type to check
+     * @param matches            matches
+     * @return the RodBinding/IntervalBinding object depending on the value of createIntervalBinding.
+     */
+    protected Object parseBinding(ArgumentSource source, Type type, ArgumentMatches matches, Tags tags) {
+        ArgumentDefinition defaultDefinition = createDefaultArgumentDefinition(source);
+        ArgumentMatchValue value = getArgumentValue(defaultDefinition, matches);
+        @SuppressWarnings("unchecked")
+        Class<? extends Feature> parameterType = JVMUtils.getParameterizedTypeClass(type);
+        String name = defaultDefinition.fullName;
+
+        return parseBinding(value, parameterType, type, name, tags, source.field.getName());
+    }
+
+    /**
+     *
+     * @param value The source of the binding
+     * @param parameterType The Tribble Feature parameter type
+     * @param bindingClass The class type for the binding (ex: RodBinding, IntervalBinding, etc.) Must have the correct constructor for creating the binding.
+     * @param bindingName The name of the binding passed to the constructor.
+     * @param tags Tags for the binding used for parsing and passed to the constructor.
+     * @param fieldName The name of the field that was parsed. Used for error reporting.
+     * @return The newly created binding object of type bindingClass.
+     */
+    public static Object parseBinding(ArgumentMatchValue value, Class<? extends Feature> parameterType, Type bindingClass,
+                                      String bindingName, Tags tags, String fieldName) {
+        try {
+            String tribbleType = null;
+            // must have one or two tag values here
+            if ( tags.getPositionalTags().size() > 2 ) {
+                throw new UserException.CommandLineException(
+                        String.format("Unexpected number of positional tags for argument %s : %s. " +
+                                "Rod bindings only support -X:type and -X:name,type argument styles",
+                                value.asString(), fieldName));
+            } else if ( tags.getPositionalTags().size() == 2 ) {
+                // -X:name,type style
+                bindingName = tags.getPositionalTags().get(0);
+                tribbleType = tags.getPositionalTags().get(1);
+
+                FeatureManager manager = new FeatureManager();
+                if ( manager.getByName(tribbleType) == null )
+                    throw new UserException.UnknownTribbleType(
+                            tribbleType,
+                            String.format("Unable to find tribble type '%s' provided on the command line. " +
+                                    "Please select a correct type from among the supported types:%n%s",
+                                    tribbleType, manager.userFriendlyListOfAvailableFeatures(parameterType)));
+
+            } else {
+                // case with 0 or 1 positional tags
+                FeatureManager manager = new FeatureManager();
+
+                // -X:type style is a type when we cannot determine the type dynamically
+                String tag1 = tags.getPositionalTags().size() == 1 ? tags.getPositionalTags().get(0) : null;
+                if ( tag1 != null ) {
+                    if ( manager.getByName(tag1) != null ) // this a type
+                        tribbleType = tag1;
+                    else
+                        bindingName = tag1;
+                }
+
+                if ( tribbleType == null ) {
+                    // try to determine the file type dynamically
+                    File file = value.asFile();
+                    if ( file.canRead() && file.isFile() ) {
+                        FeatureManager.FeatureDescriptor featureDescriptor = manager.getByFiletype(file);
+                        if ( featureDescriptor != null ) {
+                            tribbleType = featureDescriptor.getName();
+                            logger.info("Dynamically determined type of " + file + " to be " + tribbleType);
+                        }
+                    }
+
+                    if ( tribbleType == null ) {
+                        // IntervalBinding can be created from a normal String
+                        Class rawType = (makeRawTypeIfNecessary(bindingClass));
+                        try {
+                            return rawType.getConstructor(String.class).newInstance(value.asString());
+                        } catch (NoSuchMethodException e) {
+                            /* ignore */
+                        }
+
+                        if ( ! file.exists() ) {
+                            throw new UserException.CouldNotReadInputFile(file, "file does not exist");
+                        } else if ( ! file.canRead() || ! file.isFile() ) {
+                            throw new UserException.CouldNotReadInputFile(file, "file could not be read");
+                        } else {
+                            throw new UserException.CommandLineException(
+                                    String.format("No tribble type was provided on the command line and the type of the file could not be determined dynamically. " +
+                                            "Please add an explicit type tag :NAME listing the correct type from among the supported types:%n%s",
+                                            manager.userFriendlyListOfAvailableFeatures(parameterType)));
+                        }
+                    }
+                }
+            }
+
+            Constructor ctor = (makeRawTypeIfNecessary(bindingClass)).getConstructor(Class.class, String.class, String.class, String.class, Tags.class);
+            return ctor.newInstance(parameterType, bindingName, value.asString(), tribbleType, tags);
+        } catch (Exception e) {
+            if ( e instanceof UserException )
+                throw ((UserException)e);
+            else
+                throw new UserException.CommandLineException(
+                        String.format("Failed to parse value %s for argument %s. Message: %s",
+                                value, fieldName, e.getMessage()));
         }
     }
 }
@@ -324,6 +433,7 @@ class RodBindingArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     public boolean createsTypeDefault(ArgumentSource source) { return ! source.isRequired(); }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Object createTypeDefault(ParsingEngine parsingEngine, ArgumentSource source, Type type) {
         Class parameterType = JVMUtils.getParameterizedTypeClass(type);
         return RodBinding.makeUnbound((Class<? extends Feature>)parameterType);
@@ -336,118 +446,16 @@ class RodBindingArgumentTypeDescriptor extends ArgumentTypeDescriptor {
 
     @Override
     public Object parse(ParsingEngine parsingEngine, ArgumentSource source, Type type, ArgumentMatches matches) {
-        return parse(parsingEngine, source, type, matches, false);
-    }
-
-    /**
-     * The actual argument parsing method.
-     *
-     * IMPORTANT NOTE: the createIntervalBinding argument is a bit of a hack, but after discussions with SE we've decided
-     *   that it's the best way to proceed for now.  IntervalBindings can either be proper RodBindings (hence the use of
-     *   this parse() method) or can be Strings (representing raw intervals or the files containing them).  If createIntervalBinding
-     *   is true, we do not call parsingEngine.addRodBinding() because we don't want walkers to assume that these are the
-     *   usual set of RodBindings.  It also allows us in the future to be smart about tagging rods as intervals.  One other
-     *   side point is that we want to continue to allow the usage of non-Feature intervals so that users can theoretically
-     *   continue to input them out of order (whereas Tribble Features are ordered).
-     *
-     * @param parsingEngine      parsing engine
-     * @param source             source
-     * @param type               type to check
-     * @param matches            matches
-     * @param createIntervalBinding should we attempt to create an IntervalBinding instead of a RodBinding?
-     * @return the RodBinding/IntervalBinding object depending on the value of createIntervalBinding.
-     */
-    public Object parse(ParsingEngine parsingEngine, ArgumentSource source, Type type, ArgumentMatches matches, boolean createIntervalBinding) {
-        ArgumentDefinition defaultDefinition = createDefaultArgumentDefinition(source);
-        String value = getArgumentValue( defaultDefinition, matches );
-        Class<? extends Feature> parameterType = JVMUtils.getParameterizedTypeClass(type);
-
-        try {
-            String name = defaultDefinition.fullName;
-            String tribbleType = null;
-            Tags tags = getArgumentTags(matches);
-            // must have one or two tag values here
-            if ( tags.getPositionalTags().size() > 2 ) {
-                throw new UserException.CommandLineException(
-                        String.format("Unexpected number of positional tags for argument %s : %s. " +
-                                "Rod bindings only support -X:type and -X:name,type argument styles",
-                                value, source.field.getName()));
-            } if ( tags.getPositionalTags().size() == 2 ) {
-                // -X:name,type style
-                name = tags.getPositionalTags().get(0);
-                tribbleType = tags.getPositionalTags().get(1);
-            } else {
-                // case with 0 or 1 positional tags
-                FeatureManager manager = new FeatureManager();
-
-                // -X:type style is a type when we cannot determine the type dynamically
-                String tag1 = tags.getPositionalTags().size() == 1 ? tags.getPositionalTags().get(0) : null;
-                if ( tag1 != null ) {
-                    if ( manager.getByName(tag1) != null ) // this a type
-                        tribbleType = tag1;
-                    else
-                        name = tag1;
-                }
-
-                if ( tribbleType == null ) {
-                    // try to determine the file type dynamically
-                    File file = new File(value);
-                    if ( file.canRead() && file.isFile() ) {
-                        FeatureManager.FeatureDescriptor featureDescriptor = manager.getByFiletype(file);
-                        if ( featureDescriptor != null ) {
-                            tribbleType = featureDescriptor.getName();
-                            logger.info("Dynamically determined type of " + file + " to be " + tribbleType);
-                        }
-                    }
-
-                    if ( tribbleType == null ) {
-                        // IntervalBindings allow streaming conversion of Strings
-                        if ( createIntervalBinding ) {
-                            return new IntervalBinding(value);
-                        }
-
-                        if ( ! file.exists() ) {
-                            throw new UserException.CouldNotReadInputFile(file, "file does not exist");
-                        } else if ( ! file.canRead() || ! file.isFile() ) {
-                            throw new UserException.CouldNotReadInputFile(file, "file could not be read");
-                        } else {
-                            throw new UserException.CommandLineException(
-                                    String.format("No tribble type was provided on the command line and the type of the file could not be determined dynamically. " +
-                                            "Please add an explicit type tag :NAME listing the correct type from among the supported types:%n%s",
-                                            manager.userFriendlyListOfAvailableFeatures(parameterType)));
-                        }
-                    }
-                }
-            }
-
-            Constructor ctor = (makeRawTypeIfNecessary(type)).getConstructor(Class.class, String.class, String.class, String.class, Tags.class);
-            Object result;
-            if ( createIntervalBinding ) {
-                result = ctor.newInstance(parameterType, name, value, tribbleType, tags);
-            } else {
-                RodBinding rbind = (RodBinding)ctor.newInstance(parameterType, name, value, tribbleType, tags);
-                parsingEngine.addTags(rbind, tags);
-                parsingEngine.addRodBinding(rbind);
-                result = rbind;
-            }
-            return result;
-        } catch (InvocationTargetException e) {
-            throw new UserException.CommandLineException(
-                    String.format("Failed to parse value %s for argument %s.",
-                            value, source.field.getName()));
-        } catch (Exception e) {
-            if ( e instanceof UserException )
-                throw ((UserException)e);
-            else
-                throw new UserException.CommandLineException(
-                        String.format("Failed to parse value %s for argument %s. Message: %s",
-                                value, source.field.getName(), e.getMessage()));
-        }
+        Tags tags = getArgumentTags(matches);
+        RodBinding rbind = (RodBinding)parseBinding(source, type, matches, tags);
+        parsingEngine.addTags(rbind, tags);
+        parsingEngine.addRodBinding(rbind);
+        return rbind;
     }
 }
 
 /**
- * Parser for RodBinding objects
+ * Parser for IntervalBinding objects
  */
 class IntervalBindingArgumentTypeDescriptor extends ArgumentTypeDescriptor {
     /**
@@ -475,7 +483,7 @@ class IntervalBindingArgumentTypeDescriptor extends ArgumentTypeDescriptor {
      */
     @Override
     public Object parse(ParsingEngine parsingEngine, ArgumentSource source, Type type, ArgumentMatches matches) {
-        return new RodBindingArgumentTypeDescriptor().parse(parsingEngine, source, type, matches, true);
+        return parseBinding(source, type, matches, getArgumentTags(matches));
     }
 }
 
@@ -509,7 +517,7 @@ class SimpleArgumentTypeDescriptor extends ArgumentTypeDescriptor {
             return true;
 
         ArgumentDefinition defaultDefinition = createDefaultArgumentDefinition(source);
-        String value = getArgumentValue( defaultDefinition, matches );
+        ArgumentMatchValue value = getArgumentValue(defaultDefinition, matches);
         Object result;
         Tags tags = getArgumentTags(matches);
 
@@ -519,12 +527,12 @@ class SimpleArgumentTypeDescriptor extends ArgumentTypeDescriptor {
                 Method valueOf = primitiveToWrapperMap.get(type).getMethod("valueOf",String.class);
                 if(value == null)
                     throw new MissingArgumentValueException(createDefaultArgumentDefinition(source));
-                result = valueOf.invoke(null,value.trim());
+                result = valueOf.invoke(null,value.asString().trim());
             } else if (type.isEnum()) {
                 Object[] vals = type.getEnumConstants();
                 Object defaultEnumeration = null;  // as we look at options, record the default option if it exists
                 for (Object val : vals) {
-                    if (String.valueOf(val).equalsIgnoreCase(value)) return val;
+                    if (String.valueOf(val).equalsIgnoreCase(value == null ? null : value.asString())) return val;
                     try { if (type.getField(val.toString()).isAnnotationPresent(EnumerationArgumentDefault.class)) defaultEnumeration = val; }
                     catch (NoSuchFieldException e) { throw new ReviewedStingException("parsing " + type.toString() + "doesn't contain the field " + val.toString()); }
                 }
@@ -536,10 +544,12 @@ class SimpleArgumentTypeDescriptor extends ArgumentTypeDescriptor {
                 else if (value == null)
                     throw new MissingArgumentValueException(createDefaultArgumentDefinition(source));
                 else
-                    throw new UnknownEnumeratedValueException(createDefaultArgumentDefinition(source),value);
+                    throw new UnknownEnumeratedValueException(createDefaultArgumentDefinition(source),value.asString());
+            } else if (type.equals(File.class)) {
+                result = value == null ? null : value.asFile();
             } else {
                 Constructor ctor = type.getConstructor(String.class);
-                result = ctor.newInstance(value);
+                result = ctor.newInstance(value == null ? null : value.asString());
             }
         } catch (UserException e) {
             throw e;
@@ -783,7 +793,7 @@ class MultiplexArgumentTypeDescriptor extends ArgumentTypeDescriptor {
         }
 
         Class<? extends Multiplexer> multiplexerType = dependentArgument.field.getAnnotation(Multiplex.class).value();
-        Constructor<? extends Multiplexer> multiplexerConstructor = null;
+        Constructor<? extends Multiplexer> multiplexerConstructor;
         try {
             multiplexerConstructor = multiplexerType.getConstructor(sourceTypes);
             multiplexerConstructor.setAccessible(true);
@@ -792,7 +802,7 @@ class MultiplexArgumentTypeDescriptor extends ArgumentTypeDescriptor {
             throw new ReviewedStingException(String.format("Unable to find constructor for class %s with parameters %s",multiplexerType.getName(),Arrays.deepToString(sourceFields)),ex);
         }
 
-        Multiplexer multiplexer = null;
+        Multiplexer multiplexer;
         try {
             multiplexer = multiplexerConstructor.newInstance(sourceValues);
         }

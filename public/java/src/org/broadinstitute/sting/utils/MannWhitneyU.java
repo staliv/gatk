@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils;
 
 import cern.jet.math.Arithmetic;
@@ -11,6 +36,7 @@ import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.utils.collections.Pair;
 import org.broadinstitute.sting.utils.exceptions.StingException;
 
+import java.io.Serializable;
 import java.util.Comparator;
 import java.util.TreeSet;
 
@@ -29,16 +55,26 @@ public class MannWhitneyU {
     private int sizeSet2;
     private ExactMode exactMode;
 
-    public MannWhitneyU() {
-        observations = new TreeSet<Pair<Number,USet>>(new DitheringComparator());
+    public MannWhitneyU(ExactMode mode, boolean dither) {
+        if ( dither )
+            observations = new TreeSet<Pair<Number,USet>>(new DitheringComparator());
+        else
+            observations = new TreeSet<Pair<Number,USet>>(new NumberedPairComparator());
         sizeSet1 = 0;
         sizeSet2 = 0;
-        exactMode = ExactMode.POINT;
+        exactMode = mode;
+    }
+
+    public MannWhitneyU() {
+        this(ExactMode.POINT,true);
+    }
+
+    public MannWhitneyU(boolean dither) {
+        this(ExactMode.POINT,dither);
     }
 
     public MannWhitneyU(ExactMode mode) {
-        super();
-        exactMode = mode;
+        this(mode,true);
     }
 
     /**
@@ -199,9 +235,9 @@ public class MannWhitneyU {
         else if ( z > n ) { return 0.0; }
         else {
             if ( z > ((double) n) /2 ) {
-                return 1.0-1/((double)Arithmetic.factorial(n))*uniformSumHelper(z, (int) Math.floor(z), n, 0);
+                return 1.0-1/(Arithmetic.factorial(n))*uniformSumHelper(z, (int) Math.floor(z), n, 0);
             } else {
-                return 1/((double)Arithmetic.factorial(n))*uniformSumHelper(z, (int) Math.floor(z), n, 0);
+                return 1/(Arithmetic.factorial(n))*uniformSumHelper(z, (int) Math.floor(z), n, 0);
             }
         }
     }
@@ -434,17 +470,35 @@ public class MannWhitneyU {
      * A comparator class which uses dithering on tie-breaking to ensure that the internal treeset drops no values
      * and to ensure that rank ties are broken at random.
      */
-    private class DitheringComparator implements Comparator<Pair<Number,USet>> {
+    private static class DitheringComparator implements Comparator<Pair<Number,USet>>, Serializable {
 
         public DitheringComparator() {}
 
+        @Override
         public boolean equals(Object other) { return false; }
 
+        @Override
         public int compare(Pair<Number,USet> left, Pair<Number,USet> right) {
             double comp = Double.compare(left.first.doubleValue(),right.first.doubleValue());
             if ( comp > 0 ) { return 1; }
             if ( comp < 0 ) { return -1; }
             return GenomeAnalysisEngine.getRandomGenerator().nextBoolean() ? -1 : 1;
+        }
+    }
+
+    /**
+     * A comparator that reaches into the pair and compares numbers without tie-braking.
+     */
+    private static class NumberedPairComparator implements Comparator<Pair<Number,USet>>, Serializable {
+
+        public NumberedPairComparator() {}
+
+        @Override
+        public boolean equals(Object other) { return false; }
+
+        @Override
+        public int compare(Pair<Number,USet> left, Pair<Number,USet> right ) {
+            return Double.compare(left.first.doubleValue(),right.first.doubleValue());
         }
     }
 

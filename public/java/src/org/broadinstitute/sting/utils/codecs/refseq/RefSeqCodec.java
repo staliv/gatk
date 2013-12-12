@@ -1,8 +1,34 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils.codecs.refseq;
 
+import org.broad.tribble.AsciiFeatureCodec;
 import org.broad.tribble.Feature;
 import org.broad.tribble.TribbleException;
-import org.broad.tribble.readers.LineReader;
+import org.broad.tribble.readers.LineIterator;
 import org.broadinstitute.sting.gatk.refdata.ReferenceDependentFeatureCodec;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.GenomeLocParser;
@@ -20,8 +46,8 @@ import java.util.ArrayList;
  * </p>
  *
  * <p>
- * Instructions for generating a RefSeq file for use with the RefSeq codec can be found on the Wiki here
- * <a href="http://www.broadinstitute.org/gsa/wiki/index.php/RefSeq">http://www.broadinstitute.org/gsa/wiki/index.php/RefSeq</a>
+ * Instructions for generating a RefSeq file for use with the RefSeq codec can be found on the documentation guide here
+ * <a href="http://www.broadinstitute.org/gatk/guide/article?id=1329">http://www.broadinstitute.org/gatk/guide/article?id=1329</a>
  * </p>
  * <h2> Usage </h2>
  * The RefSeq Rod can be bound as any other rod, and is specified by REFSEQ, for example
@@ -46,13 +72,18 @@ import java.util.ArrayList;
  * @author Mark DePristo
  * @since 2010
  */
-public class RefSeqCodec implements ReferenceDependentFeatureCodec<RefSeqFeature> {
+public class RefSeqCodec extends AsciiFeatureCodec<RefSeqFeature> implements ReferenceDependentFeatureCodec {
 
     /**
      * The parser to use when resolving genome-wide locations.
      */
     private GenomeLocParser genomeLocParser;
     private boolean zero_coding_length_user_warned = false;
+
+    public RefSeqCodec() {
+        super(RefSeqFeature.class);
+    }
+
     /**
      * Set the parser to use when resolving genetic data.
      * @param genomeLocParser The supplied parser.
@@ -63,7 +94,8 @@ public class RefSeqCodec implements ReferenceDependentFeatureCodec<RefSeqFeature
     }
 
     @Override
-    public Feature decodeLoc(String line) {
+    public Feature decodeLoc(final LineIterator lineIterator) {
+        final String line = lineIterator.next();
         if (line.startsWith("#")) return null;
         String fields[] = line.split("\t");
         if (fields.length < 3) throw new TribbleException("RefSeq (decodeLoc) : Unable to parse line -> " + line + ", we expected at least 3 columns, we saw " + fields.length);
@@ -132,15 +164,8 @@ public class RefSeqCodec implements ReferenceDependentFeatureCodec<RefSeqFeature
     }
 
     @Override
-    public Object readHeader(LineReader reader) {
+    public Object readActualHeader(LineIterator lineIterator) {
+        // No header for this format
         return null;
     }
-
-    @Override
-    public Class<RefSeqFeature> getFeatureType() {
-        return RefSeqFeature.class;
-    }
-
-    public boolean canDecode(final String potentialInput) { return false; }
-
 }

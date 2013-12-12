@@ -1,36 +1,36 @@
 /*
- * Copyright (c) 2010, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.codecs.samread;
 
 import net.sf.samtools.Cigar;
 import net.sf.samtools.TextCigarCodec;
 import net.sf.samtools.util.StringUtil;
-import org.broad.tribble.AbstractFeatureCodec;
-import org.broad.tribble.Feature;
+import org.broad.tribble.AsciiFeatureCodec;
 import org.broad.tribble.exception.CodecLineParsingException;
-import org.broad.tribble.readers.LineReader;
+import org.broad.tribble.readers.LineIterator;
 import org.broad.tribble.util.ParsingUtils;
 
 /**
@@ -52,31 +52,14 @@ import org.broad.tribble.util.ParsingUtils;
  * @author Matt Hanna
  * @since 2009
  */
-public class SAMReadCodec extends AbstractFeatureCodec<SAMReadFeature> {
+public class SAMReadCodec extends AsciiFeatureCodec<SAMReadFeature> {
     /* SL-XBC:1:10:628:923#0	16	Escherichia_coli_K12	1	37	76M	=	1	0	AGCTTTTCATTCTGACTGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGCTTCTGA	B@>87<;A@?@957:>>@AA@B>@A9AB@B>@A@@@@@A;=AAB@BBBBBCBBBB@>A>:ABB@BAABCB=CA@CB */
 
     // the number of tokens we expect to parse from a read line
     private static final int expectedTokenCount = 11;
 
-    /**
-     * Return the # of header lines for this file.
-     *
-     * @param reader the line reader
-     * @return 0 in this case, we assume no header lines.  The reads file may have a
-     *         header line beginning with '@', but we can ignore that in the decode function.
-     */
-    public Object readHeader(LineReader reader) {
-        // we don't require a header line, but it may exist.  We'll deal with that above.
-        return null;
-    }
-
-    @Override
-    public Class<SAMReadFeature> getFeatureType() {
-        return SAMReadFeature.class;
-    }
-
-    public Feature decodeLoc(String line) {
-        return decode(line);
+    public SAMReadCodec() {
+        super(SAMReadFeature.class);
     }
 
     /**
@@ -132,5 +115,9 @@ public class SAMReadCodec extends AbstractFeatureCodec<SAMReadFeature> {
                                   qualities);
     }
 
-
+    @Override
+    public Object readActualHeader(LineIterator lineIterator) {
+        // No header for this format
+        return null;
+    }
 }

@@ -1,14 +1,37 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils;
 
 import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
+import net.sf.samtools.SAMFileHeader;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Created by IntelliJ IDEA.
@@ -126,6 +149,15 @@ public class GenomeLoc implements Comparable<GenomeLoc>, Serializable, HasGenome
     }
 
     /**
+     * Return true if this GenomeLoc represents the UNMAPPED location
+     * @return
+     */
+    public final boolean isUnmapped() {
+        return isUnmapped(this);
+    }
+
+
+    /**
      * Returns a new GenomeLoc that represents the entire span of this and that.  Requires that
      * this and that GenomeLoc are contiguous and both mapped
      */
@@ -141,7 +173,7 @@ public class GenomeLoc implements Comparable<GenomeLoc>, Serializable, HasGenome
         }
 
         if (!(this.contiguousP(that))) {
-            throw new ReviewedStingException("The two genome loc's need to be contigous");
+            throw new ReviewedStingException("The two genome loc's need to be contiguous");
         }
 
         return new GenomeLoc(getContig(), this.contigIndex,
@@ -307,6 +339,20 @@ public class GenomeLoc implements Comparable<GenomeLoc>, Serializable, HasGenome
     }
 
     /**
+     * Tests whether this genome loc starts at the same position as that.
+     *
+     * i.e., do this and that have the same contig and the same start position
+     *
+     * @param that genome loc to compare to
+     * @return true if this and that have the same contig and the same start position
+     */
+    @Requires("that != null")
+    public final boolean startsAt( GenomeLoc that ) {
+        int comparison = this.compareContigs(that);
+        return comparison == 0 && this.getStart() == that.getStart();
+    }
+
+    /**
      * Tests whether any portion of this contig is before that contig.
      * @param that Other contig to test.
      * @return True if the start of this contig is before the start of the that contig.
@@ -418,7 +464,10 @@ public class GenomeLoc implements Comparable<GenomeLoc>, Serializable, HasGenome
                 result = cmpContig;
             } else {
                 if ( this.getStart() < that.getStart() ) result = -1;
-                if ( this.getStart() > that.getStart() ) result = 1;
+                else if ( this.getStart() > that.getStart() ) result = 1;
+                // these have the same start, so check the ends
+                else if ( this.getStop() < that.getStop() ) result = -1;
+                else if ( this.getStop() > that.getStop() ) result = 1;
             }
         }
 
@@ -468,5 +517,141 @@ public class GenomeLoc implements Comparable<GenomeLoc>, Serializable, HasGenome
 
     public long sizeOfOverlap( final GenomeLoc that ) {
         return ( this.overlapsP(that) ? Math.min( getStop(), that.getStop() ) - Math.max( getStart(), that.getStart() ) + 1L : 0L );
+    }
+
+    /**
+     * Returns the maximum GenomeLoc of this and other
+     * @param other another non-null genome loc
+     * @return the max of this and other
+     */
+    public GenomeLoc max(final GenomeLoc other) {
+        final int cmp = this.compareTo(other);
+        return cmp == -1 ? other : this;
+    }
+
+    /**
+     * create a new genome loc from an existing loc, with a new start position
+     * Note that this function will NOT explicitly check the ending offset, in case someone wants to
+     * set the start of a new GenomeLoc pertaining to a read that goes off the end of the contig.
+     *
+     * @param loc   the old location
+     * @param start a new start position
+     *
+     * @return a newly allocated GenomeLoc as loc but with start == start
+     */
+    public GenomeLoc setStart(GenomeLoc loc, int start) {
+        return new GenomeLoc(loc.getContig(), loc.getContigIndex(), start, loc.getStop());
+    }
+
+    /**
+     * create a new genome loc from an existing loc, with a new stop position
+     * Note that this function will NOT explicitly check the ending offset, in case someone wants to
+     * set the stop of a new GenomeLoc pertaining to a read that goes off the end of the contig.
+     *
+     * @param loc  the old location
+     * @param stop a new stop position
+     *
+     * @return a newly allocated GenomeLoc as loc but with stop == stop
+     */
+    public GenomeLoc setStop(GenomeLoc loc, int stop) {
+        return new GenomeLoc(loc.getContig(), loc.getContigIndex(), loc.start, stop);
+    }
+
+    /**
+     * return a new genome loc, with an incremented position
+     *
+     * @return a newly allocated GenomeLoc as loc but with start == loc.getStart() + 1
+     */
+    public GenomeLoc incPos() {
+        return incPos(1);
+    }
+
+    /**
+     * return a new genome loc, with an incremented position
+     *
+     * @param by  how much to move the start and stop by
+     *
+     * @return a newly allocated GenomeLoc as loc but with start == loc.getStart() + by
+     */
+    public GenomeLoc incPos(int by) {
+        return new GenomeLoc(getContig(), getContigIndex(), start + by, stop + by);
+    }
+
+    /**
+     * Merges 2 *contiguous* locs into 1
+     *
+     * @param a   GenomeLoc #1
+     * @param b   GenomeLoc #2
+     * @return one merged loc
+     */
+    @Requires("a != null && b != null")
+    public static <T extends GenomeLoc> GenomeLoc merge(final T a, final T b) {
+        if ( isUnmapped(a) || isUnmapped(b) ) {
+            throw new ReviewedStingException("Tried to merge unmapped genome locs");
+        }
+
+        if ( !(a.contiguousP(b)) ) {
+            throw new ReviewedStingException("The two genome locs need to be contiguous");
+        }
+
+        return new GenomeLoc(a.getContig(), a.contigIndex, Math.min(a.getStart(), b.getStart()), Math.max(a.getStop(), b.getStop()));
+    }
+
+    /**
+     * Merges a list of *sorted* *contiguous* locs into 1
+     *
+     * @param sortedLocs a sorted list of contiguous locs
+     * @return one merged loc
+     */
+    @Requires("sortedLocs != null")
+    public static <T extends GenomeLoc> GenomeLoc merge(final SortedSet<T> sortedLocs) {
+        GenomeLoc result = null;
+
+        for ( GenomeLoc loc : sortedLocs ) {
+            if ( loc.isUnmapped() )
+                throw new ReviewedStingException("Tried to merge unmapped genome locs");
+
+            if ( result == null )
+                result = loc;
+            else if ( !result.contiguousP(loc) )
+                throw new ReviewedStingException("The genome locs need to be contiguous");
+            else
+                result = merge(result, loc);
+        }
+
+        return result;
+    }
+
+    /**
+     * Calculates the distance between two genomeLocs across contigs (if necessary).
+     *
+     * Returns minDistance(other) if in same contig.
+     * Works with intervals!
+     * Uses the SAMFileHeader to extract the size of the contigs and follows the order in the dictionary.
+     *
+     * @param other         the genome loc to compare to
+     * @param samFileHeader the contig information
+     * @return the sum of all the bases in between the genomeLocs, including entire contigs
+     */
+    public long distanceAcrossContigs(GenomeLoc other, SAMFileHeader samFileHeader) {
+        if (onSameContig(other))
+            return minDistance(other);
+
+        // add the distance from the first genomeLoc to the end of it's contig and the distance from the
+        // second genomeLoc to the beginning of it's contig.
+        long distance = 0;
+        if (contigIndex < other.contigIndex) {
+            distance += samFileHeader.getSequence(contigIndex).getSequenceLength() - stop;
+            distance += other.start;
+        } else {
+            distance += samFileHeader.getSequence(other.contigIndex).getSequenceLength() - other.stop;
+            distance += start;
+        }
+
+        // add any contig (in its entirety) in between the two genomeLocs
+        for (int i=Math.min(this.contigIndex, other.contigIndex) + 1; i < Math.max(this.contigIndex, other.contigIndex); i++) {
+            distance += samFileHeader.getSequence(i).getSequenceLength();
+        }
+        return distance;
     }
 }

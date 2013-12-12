@@ -1,40 +1,42 @@
 /*
- * Copyright (c) 2010, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.exceptions;
 
+import net.sf.samtools.CigarOperator;
 import net.sf.samtools.SAMFileHeader;
 import net.sf.samtools.SAMRecord;
 import net.sf.samtools.SAMSequenceDictionary;
-import net.sf.samtools.SAMSequenceRecord;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.help.DocumentedGATKFeature;
+import org.broadinstitute.sting.utils.help.HelpConstants;
 import org.broadinstitute.sting.utils.sam.ReadUtils;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
+import org.broadinstitute.sting.utils.variant.GATKVCFIndexType;
+import org.broadinstitute.variant.variantcontext.VariantContext;
 
 import java.io.File;
-import java.util.Arrays;
 
 /**
  * Represents the common user errors detected by Sting / GATK
@@ -46,18 +48,59 @@ import java.util.Arrays;
  * Time: 2:24:09 PM
  */
 @DocumentedGATKFeature(
-        groupName = "User exceptions",
-        summary = "Exceptions caused by incorrect user behavior, such as bad files, bad arguments, etc." )
+        groupName = HelpConstants.DOCS_CAT_USRERR,
+        summary = "Errors caused by incorrect user behavior, such as bad files, bad arguments, etc." )
 public class UserException extends ReviewedStingException {
+    /**
+     * The URL where people can get help messages.  Printed when an error occurs
+     */
+    public static final String PHONE_HOME_DOCS_URL = "http://gatkforums.broadinstitute.org/discussion/1250/what-is-phone-home-and-how-does-it-affect-me#latest";
+
     public UserException(String msg) { super(msg); }
     public UserException(String msg, Throwable e) { super(msg, e); }
     private UserException(Throwable e) { super("", e); } // cannot be called, private access
+
+    protected static String getMessage(Throwable t) {
+        String message = t.getMessage();
+        return message != null ? message : t.getClass().getName();
+    }
 
     public static class CommandLineException extends UserException {
         public CommandLineException(String message) {
             super(String.format("Invalid command line: %s", message));
         }
     }
+
+    public static class MalformedReadFilterException extends CommandLineException {
+        public MalformedReadFilterException(String message) {
+            super(String.format("Malformed read filter: %s",message));
+        }
+    }
+
+    public static class IncompatibleReadFiltersException extends CommandLineException {
+        public IncompatibleReadFiltersException(final String filter1, final String filter2) {
+            super(String.format("Two read filters are enabled that are incompatible and cannot be used simultaneously: %s and %s", filter1, filter2));
+        }
+    }
+
+    public static class MalformedWalkerArgumentsException extends CommandLineException {
+        public MalformedWalkerArgumentsException(String message) {
+            super(String.format("Malformed walker argument: %s",message));
+        }
+    }
+
+    public static class UnsupportedCigarOperatorException extends UserException {
+        public UnsupportedCigarOperatorException(final CigarOperator co, final SAMRecord read, final String message) {
+            super(String.format(
+                "Unsupported CIGAR operator %s in read %s at %s:%d. %s",
+                co,
+                read.getReadName(),
+                read.getReferenceName(),
+                read.getAlignmentStart(),
+                message));
+        }
+    }
+
 
     public static class MalformedGenomeLoc extends UserException {
         public MalformedGenomeLoc(String message, GenomeLoc loc) {
@@ -107,6 +150,12 @@ public class UserException extends ReviewedStingException {
         }
     }
 
+    public static class LocalParallelizationProblem extends UserException {
+        public LocalParallelizationProblem(final File file) {
+            super(String.format("There was a failure because temporary file %s could not be found while running the GATK with more than one thread.  Possible causes for this problem include: your system's open file handle limit is too small, your output or temp directories do not have sufficient space, or just an isolated file system blip", file.getAbsolutePath()));
+        }
+    }
+
     public static class NotEnoughMemory extends UserException {
         public NotEnoughMemory() {
             super(String.format("There was a failure because you did not provide enough memory to run this program.  See the -Xmx JVM argument to adjust the maximum heap size provided to Java"));
@@ -119,9 +168,15 @@ public class UserException extends ReviewedStingException {
         }
     }
 
+    public static class NoSpaceOnDevice extends UserException {
+        public NoSpaceOnDevice() {
+            super("There is no space left on the device, so writing failed");
+        }
+    }
+
     public static class CouldNotReadInputFile extends UserException {
         public CouldNotReadInputFile(String message, Exception e) {
-            super(String.format("Couldn't read file because %s caused by %s", message, e.getMessage()));
+            super(String.format("Couldn't read file because %s caused by %s", message, getMessage(e)));
         }
 
         public CouldNotReadInputFile(File file) {
@@ -132,12 +187,16 @@ public class UserException extends ReviewedStingException {
             super(String.format("Couldn't read file %s because %s", file.getAbsolutePath(), message));
         }
 
+        public CouldNotReadInputFile(String file, String message) {
+            super(String.format("Couldn't read file %s because %s", file, message));
+        }
+
         public CouldNotReadInputFile(File file, String message, Exception e) {
-            super(String.format("Couldn't read file %s because %s with exception %s", file.getAbsolutePath(), message, e.getMessage()));
+            super(String.format("Couldn't read file %s because %s with exception %s", file.getAbsolutePath(), message, getMessage(e)));
         }
 
         public CouldNotReadInputFile(File file, Exception e) {
-            this(file, e.getMessage());
+            this(file, getMessage(e));
         }
 
         public CouldNotReadInputFile(String message) {
@@ -148,7 +207,7 @@ public class UserException extends ReviewedStingException {
 
     public static class CouldNotCreateOutputFile extends UserException {
         public CouldNotCreateOutputFile(File file, String message, Exception e) {
-            super(String.format("Couldn't write file %s because %s with exception %s", file.getAbsolutePath(), message, e.getMessage()));
+            super(String.format("Couldn't write file %s because %s with exception %s", file.getAbsolutePath(), message, getMessage(e)));
         }
 
         public CouldNotCreateOutputFile(File file, String message) {
@@ -156,11 +215,11 @@ public class UserException extends ReviewedStingException {
         }
 
         public CouldNotCreateOutputFile(String filename, String message, Exception e) {
-            super(String.format("Couldn't write file %s because %s with exception %s", filename, message, e.getMessage()));
+            super(String.format("Couldn't write file %s because %s with exception %s", filename, message, getMessage(e)));
         }
 
         public CouldNotCreateOutputFile(File file, Exception e) {
-            super(String.format("Couldn't write file %s because exception %s", file.getAbsolutePath(), e.getMessage()));
+            super(String.format("Couldn't write file %s because exception %s", file.getAbsolutePath(), getMessage(e)));
         }
 
         public CouldNotCreateOutputFile(String message, Exception e) {
@@ -201,6 +260,16 @@ public class UserException extends ReviewedStingException {
         }
     }
 
+    public static class MisencodedBAM extends UserException {
+        public MisencodedBAM(SAMRecord read, String message) {
+            this(read.getFileSource() != null ? read.getFileSource().getReader().toString() : "(none)", message);
+        }
+
+        public MisencodedBAM(String source, String message) {
+            super(String.format("SAM/BAM file %s appears to be using the wrong encoding for quality scores: %s; please see the GATK --help documentation for options related to this error", source, message));
+        }
+    }
+
     public static class MalformedVCF extends UserException {
         public MalformedVCF(String message, String line) {
             super(String.format("The provided VCF file is malformed at line %s: %s", line, message));
@@ -215,6 +284,12 @@ public class UserException extends ReviewedStingException {
         }
     }
 
+    public static class MalformedBCF2 extends UserException {
+        public MalformedBCF2( String message ) {
+            super(String.format("Malformed BCF2 file: %s", message));
+        }
+    }
+
     public static class MalformedVCFHeader extends UserException {
         public MalformedVCFHeader(String message) {
             super(String.format("The provided VCF file has a malformed header: %s", message));
@@ -222,8 +297,14 @@ public class UserException extends ReviewedStingException {
     }
 
     public static class ReadMissingReadGroup extends MalformedBAM {
-        public ReadMissingReadGroup(SAMRecord read) {
-            super(read, String.format("Read %s is either missing the read group or its read group is not defined in the BAM header, both of which are required by the GATK.  Please use http://www.broadinstitute.org/gsa/wiki/index.php/ReplaceReadGroups to fix this problem", read.getReadName()));
+        public ReadMissingReadGroup(final SAMRecord read) {
+            super(read, String.format("Read %s is missing the read group (RG) tag, which is required by the GATK.  Please use " + HelpConstants.forumPost("discussion/59/companion-utilities-replacereadgroups to fix this problem"), read.getReadName()));
+        }
+    }
+
+    public static class ReadHasUndefinedReadGroup extends MalformedBAM {
+        public ReadHasUndefinedReadGroup(final SAMRecord read, final String rgID) {
+            super(read, String.format("Read %s uses a read group (%s) that is not defined in the BAM header, which is not valid.  Please use " + HelpConstants.forumPost("discussion/59/companion-utilities-replacereadgroups to fix this problem"), read.getReadName(), rgID));
         }
     }
 
@@ -235,7 +316,13 @@ public class UserException extends ReviewedStingException {
 
     public static class MissortedFile extends UserException {
         public MissortedFile(File file, String message, Exception e) {
-            super(String.format("Missorted Input file: %s is must be sorted in coordinate order. %s and got error %s", file, message, e.getMessage()));
+            super(String.format("Missorted Input file: %s is must be sorted in coordinate order. %s and got error %s", file, message, getMessage(e)));
+        }
+    }
+
+    public static class FailsStrictValidation extends UserException {
+        public FailsStrictValidation(File f, String message) {
+            super(String.format("File %s fails strict validation: %s", f.getAbsolutePath(), message));
         }
     }
 
@@ -245,7 +332,7 @@ public class UserException extends ReviewedStingException {
         }
 
         public MalformedFile(String message, Exception e) {
-            super(String.format("Unknown file is malformed: %s caused by %s", message, e.getMessage()));
+            super(String.format("Unknown file is malformed: %s caused by %s", message, getMessage(e)));
         }
 
         public MalformedFile(File f, String message) {
@@ -253,7 +340,7 @@ public class UserException extends ReviewedStingException {
         }
 
         public MalformedFile(File f, String message, Exception e) {
-            super(String.format("File %s is malformed: %s caused by %s", f.getAbsolutePath(), message, e.getMessage()));
+            super(String.format("File %s is malformed: %s caused by %s", f.getAbsolutePath(), message, getMessage(e)));
         }
 
         public MalformedFile(String name, String message) {
@@ -261,7 +348,7 @@ public class UserException extends ReviewedStingException {
         }
 
         public MalformedFile(String name, String message, Exception e) {
-            super(String.format("File associated with name %s is malformed: %s caused by %s", name, message, e.getMessage()));
+            super(String.format("File associated with name %s is malformed: %s caused by %s", name, message, getMessage(e)));
         }
      }
 
@@ -293,61 +380,70 @@ public class UserException extends ReviewedStingException {
             super(String.format("Lexicographically sorted human genome sequence detected in %s."
                     + "\nFor safety's sake the GATK requires human contigs in karyotypic order: 1, 2, ..., 10, 11, ..., 20, 21, 22, X, Y with M either leading or trailing these contigs."
                     + "\nThis is because all distributed GATK resources are sorted in karyotypic order, and your processing will fail when you need to use these files."
-                    + "\nYou can use the ReorderSam utility to fix this problem: http://www.broadinstitute.org/gsa/wiki/index.php/ReorderSam"
+                    + "\nYou can use the ReorderSam utility to fix this problem: " + HelpConstants.forumPost("discussion/58/companion-utilities-reordersam")
                     + "\n  %s contigs = %s",
                     name, name, ReadUtils.prettyPrintSequenceRecords(dict)));
         }
     }
 
+    public static class DeprecatedWalker extends UserException {
+        public DeprecatedWalker(String walkerName, String version) {
+            super(String.format("Walker %s is no longer available in the GATK; it has been deprecated since version %s", walkerName, version));
+        }
+    }
 
-
-    public static class MissingWalker extends UserException {
-        public MissingWalker(String walkerName, String message) {
-            super(String.format("Walker %s is not available: %s", walkerName, message));
+    public static class DeprecatedAnnotation extends UserException {
+        public DeprecatedAnnotation(String annotationName, String version) {
+            super(String.format("Annotation %s is no longer available in the GATK; it has been deprecated since version %s", annotationName, version));
         }
     }
 
     public static class CannotExecuteQScript extends UserException {
+        public CannotExecuteQScript(String message) {
+            super(String.format("Unable to execute QScript: " + message));
+        }
         public CannotExecuteQScript(String message, Exception e) {
             super(String.format("Unable to execute QScript: " + message), e);
         }
     }
 
-    public static class CouldNotCreateReferenceIndexFile extends UserException {
-        public CouldNotCreateReferenceIndexFile(File f, Exception e) {
-            this(f, "", e);
-        }
-
-        public CouldNotCreateReferenceIndexFile(File f, String message, Exception e) {
-            super(String.format("Index file %s does not exist but could not be created because: %s. ", f, message)
-                    + (e == null ? "" : e.getMessage()));
+    public static class CannotHandleGzippedRef extends UserException {
+        public CannotHandleGzippedRef() {
+            super("The GATK cannot process compressed (.gz) reference sequences. Please unzip the file and try again.  Sorry for the inconvenience.");
         }
     }
 
-    public static class CouldNotCreateReferenceIndexFileBecauseOfLock extends UserException.CouldNotCreateReferenceIndexFile {
-        public CouldNotCreateReferenceIndexFileBecauseOfLock(File f) {
-            super(f, "could not be written because an exclusive file lock could not be obtained. " +
-                    "If you are running multiple instances of GATK, another GATK process is " +
-                    "probably creating this file now, and has locked it. Please wait until this process finishes " +
-                    "and try again.", null);
+    public static class MissingReferenceFaiFile extends UserException {
+        public MissingReferenceFaiFile( final File indexFile, final File fastaFile ) {
+            super(String.format("Fasta index file %s for reference %s does not exist. Please see %s for help creating it.",
+                                indexFile.getAbsolutePath(), fastaFile.getAbsolutePath(),
+                                HelpConstants.forumPost("discussion/1601/how-can-i-prepare-a-fasta-file-to-use-as-reference")));
+        }
+    }
+
+    public static class MissingReferenceDictFile extends UserException {
+        public MissingReferenceDictFile( final File dictFile, final File fastaFile ) {
+            super(String.format("Fasta dict file %s for reference %s does not exist. Please see %s for help creating it.",
+                                dictFile.getAbsolutePath(), fastaFile.getAbsolutePath(),
+                                HelpConstants.forumPost("discussion/1601/how-can-i-prepare-a-fasta-file-to-use-as-reference")));
         }
     }
 
     public static class UnreadableKeyException extends UserException {
         public UnreadableKeyException ( File f, Exception e ) {
             super(String.format("Key file %s cannot be read (possibly the key file is corrupt?). Error was: %s. " +
-                                "Please see http://www.broadinstitute.org/gsa/wiki/index.php/Phone_home for help.",
-                                f.getAbsolutePath(), e.getMessage()));
+                                "Please see %s for help.",
+                                f.getAbsolutePath(), getMessage(e), PHONE_HOME_DOCS_URL));
         }
 
         public UnreadableKeyException ( String message, Exception e ) {
-            this(String.format("%s. Error was: %s", message, e.getMessage()));
+            this(String.format("%s. Error was: %s", message, getMessage(e)));
         }
 
         public UnreadableKeyException ( String message ) {
             super(String.format("Key file cannot be read (possibly the key file is corrupt?): %s. " +
-                                "Please see http://www.broadinstitute.org/gsa/wiki/index.php/Phone_home for help.",
-                                message));
+                                "Please see %s for help.",
+                                message, PHONE_HOME_DOCS_URL));
         }
     }
 
@@ -355,9 +451,39 @@ public class UserException extends ReviewedStingException {
         public KeySignatureVerificationException ( File f ) {
             super(String.format("The signature in key file %s failed cryptographic verification. " +
                                 "If this key was valid in the past, it's likely been revoked. " +
-                                "Please see http://www.broadinstitute.org/gsa/wiki/index.php/Phone_home " +
-                                "for help.",
-                                f.getAbsolutePath()));
+                                "Please see %s for help.",
+                                f.getAbsolutePath(), PHONE_HOME_DOCS_URL));
+        }
+    }
+
+    public static class GVCFIndexException extends UserException {
+        public GVCFIndexException (GATKVCFIndexType indexType, int indexParameter) {
+            super(String.format("GVCF output requires a specific indexing strategy.  Please re-run including the arguments " +
+                    "-variant_index_type %s -variant_index_parameter %d.",
+                    indexType, indexParameter));
+        }
+    }
+
+    /**
+     * A special exception that happens only in the case where
+     * the filesystem, by design or configuration, is completely unable
+     * to handle locking.  This exception will specifically NOT be thrown
+     * in the case where the filesystem handles locking but is unable to
+     * acquire a lock due to concurrency.
+     */
+    public static class FileSystemInabilityToLockException extends UserException {
+        public FileSystemInabilityToLockException( String message ) {
+            super(message);
+        }
+
+        public FileSystemInabilityToLockException( String message, Exception innerException ) {
+            super(message,innerException);
+        }
+    }
+
+    public static class IncompatibleRecalibrationTableParameters extends UserException {
+        public IncompatibleRecalibrationTableParameters(String s) {
+            super(s);
         }
     }
 }

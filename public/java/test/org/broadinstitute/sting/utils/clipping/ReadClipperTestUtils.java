@@ -1,8 +1,34 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils.clipping;
 
 import net.sf.samtools.Cigar;
 import net.sf.samtools.CigarElement;
 import net.sf.samtools.CigarOperator;
+import net.sf.samtools.TextCigarCodec;
 import org.broadinstitute.sting.utils.Utils;
 import org.broadinstitute.sting.utils.sam.ArtificialSAMUtils;
 import org.broadinstitute.sting.utils.sam.GATKSAMRecord;
@@ -12,13 +38,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Stack;
 
-/**
- * Created by IntelliJ IDEA.
- * User: roger
- * Date: 11/27/11
- * Time: 6:45 AM
- * To change this template use File | Settings | File Templates.
- */
 public class ReadClipperTestUtils {
     //Should contain all the utils needed for tests to mass produce
     //reads, cigars, and other needed classes
@@ -37,17 +56,22 @@ public class ReadClipperTestUtils {
         return ArtificialSAMUtils.createArtificialRead(Utils.arrayFromArrayWithLength(BASES, cigar.getReadLength()), Utils.arrayFromArrayWithLength(QUALS, cigar.getReadLength()), cigar.toString());
     }
 
-    /**
-     * This function generates every valid permutation of cigar strings with a given length.
-     *
-     * A valid cigar object obeys the following rules:
-     *  - No Hard/Soft clips in the middle of the read
-     *  - No deletions in the beginning / end of the read
-     *  - No repeated adjacent element (e.g. 1M2M -> this should be 3M)
-     *
-     * @param maximumLength the maximum number of elements in the cigar
-     * @return a list with all valid Cigar objects
-     */
+    public static GATKSAMRecord makeReadFromCigar(String cigarString) {
+        return makeReadFromCigar(cigarFromString(cigarString));
+    }
+
+        /**
+        * This function generates every valid permutation of cigar strings with a given length.
+        *
+        * A valid cigar object obeys the following rules:
+        *  - No Hard/Soft clips in the middle of the read
+        *  - No deletions in the beginning / end of the read
+        *  - No repeated adjacent element (e.g. 1M2M -> this should be 3M)
+        *  - No consecutive I/D elements
+        *
+        * @param maximumLength the maximum number of elements in the cigar
+        * @return a list with all valid Cigar objects
+        */
     public static List<Cigar> generateCigarList(int maximumLength) {
         int numCigarElements = cigarElements.length;
         LinkedList<Cigar> cigarList = new LinkedList<Cigar>();
@@ -84,14 +108,14 @@ public class ReadClipperTestUtils {
     }
 
     private static boolean isCigarValid(Cigar cigar) {
-        if (cigar.isValid(null, -1) == null) {                                          // This should take care of most invalid Cigar Strings (picard's "exhaustive" implementation)
+        if (cigar.isValid(null, -1) == null) {                                                                          // This should take care of most invalid Cigar Strings (picard's "exhaustive" implementation)
 
-            Stack<CigarElement> cigarElementStack = new Stack<CigarElement>();          // Stack to invert cigar string to find ending operator
+            Stack<CigarElement> cigarElementStack = new Stack<CigarElement>();                                          // Stack to invert cigar string to find ending operator
             CigarOperator startingOp = null;
             CigarOperator endingOp = null;
 
             // check if it doesn't start with deletions
-            boolean readHasStarted = false;                                             // search the list of elements for the starting operator
+            boolean readHasStarted = false;                                                                             // search the list of elements for the starting operator
             for (CigarElement cigarElement : cigar.getCigarElements()) {
                 if (!readHasStarted) {
                     if (cigarElement.getOperator() != CigarOperator.SOFT_CLIP && cigarElement.getOperator() != CigarOperator.HARD_CLIP) {
@@ -102,19 +126,16 @@ public class ReadClipperTestUtils {
                 cigarElementStack.push(cigarElement);
             }
 
-            readHasStarted = false;                                                     // search the inverted list of elements (stack) for the stopping operator
             while (!cigarElementStack.empty()) {
                 CigarElement cigarElement = cigarElementStack.pop();
                 if (cigarElement.getOperator() != CigarOperator.SOFT_CLIP && cigarElement.getOperator() != CigarOperator.HARD_CLIP) {
-                    readHasStarted = true;
                     endingOp = cigarElement.getOperator();
                     break;
                 }
             }
 
-//            if (startingOp != CigarOperator.DELETION && endingOp != CigarOperator.DELETION && startingOp != CigarOperator.INSERTION && endingOp != CigarOperator.INSERTION)
               if (startingOp != CigarOperator.DELETION && endingOp != CigarOperator.DELETION)
-                  return true;                                                            // we don't accept reads starting or ending in deletions (add any other constraint here)
+                  return true;                                                                                          // we don't accept reads starting or ending in deletions (add any other constraint here)
         }
 
         return false;
@@ -140,7 +161,10 @@ public class ReadClipperTestUtils {
         CigarElement lastElement = null;
         int lastElementLength = 0;
         for (CigarElement cigarElement : rawCigar.getCigarElements()) {
-            if (lastElement != null && lastElement.getOperator() == cigarElement.getOperator())
+            if (lastElement != null &&
+                    ((lastElement.getOperator() == cigarElement.getOperator()) ||
+                     (lastElement.getOperator() == CigarOperator.I && cigarElement.getOperator() == CigarOperator.D) ||
+                     (lastElement.getOperator() == CigarOperator.D && cigarElement.getOperator() == CigarOperator.I)))
                 lastElementLength += cigarElement.getLength();
             else
             {
@@ -194,7 +218,7 @@ public class ReadClipperTestUtils {
     /**
      * Checks whether or not the read has any cigar element that is not H or S
      *
-     * @param read
+     * @param read the read
      * @return true if it has any M, I or D, false otherwise
      */
     public static boolean readHasNonClippedBases(GATKSAMRecord read) {
@@ -204,5 +228,7 @@ public class ReadClipperTestUtils {
         return false;
     }
 
-
+    public static Cigar cigarFromString(String cigarString) {
+        return TextCigarCodec.getSingleton().decode(cigarString);
+    }
 }

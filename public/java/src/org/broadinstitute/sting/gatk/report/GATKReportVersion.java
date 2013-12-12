@@ -1,30 +1,32 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.report;
 
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
+import org.broadinstitute.sting.utils.exceptions.UserException;
 
 public enum GATKReportVersion {
     /**
@@ -45,10 +47,17 @@ public enum GATKReportVersion {
     /*
     * Differences between v0.x
     * - Added table and report headers
-    * - Headers changed format, include the numbe rof tables, rows, and metadata for gathering
+    * - Headers changed format, include the number of tables, rows, and metadata for gathering
     * - IS GATHERABLE
     */
-    V1_0("v1.0");
+    V1_0("v1.0"),
+
+    /*
+    * Differences between v1.0
+    * - column numbers in header reflect the actual count of columns
+    * - primary keys are never displayed
+    */
+    V1_1("v1.1");
 
     private final String versionString;
 
@@ -72,6 +81,9 @@ public enum GATKReportVersion {
      * @return The version as an enum.
      */
     public static GATKReportVersion fromHeader(String header) {
+        if ( header == null )
+            throw new UserException.BadInput("The GATK report has no version specified in the header");
+
         if (header.startsWith("##:GATKReport.v0.1 "))
             return GATKReportVersion.V0_1;
 
@@ -81,6 +93,9 @@ public enum GATKReportVersion {
         if (header.startsWith("#:GATKReport.v1.0"))
             return GATKReportVersion.V1_0;
 
-        throw new ReviewedStingException("Unknown GATK report version in header: " + header);
+        if (header.startsWith("#:GATKReport.v1.1"))
+            return GATKReportVersion.V1_1;
+
+        throw new UserException.BadInput("The GATK report has an unknown/unsupported version in the header: " + header);
     }
 }

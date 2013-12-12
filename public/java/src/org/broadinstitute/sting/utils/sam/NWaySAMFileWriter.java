@@ -1,40 +1,41 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.sam;
 
 import net.sf.samtools.*;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.gatk.datasources.reads.SAMReaderID;
-import org.broadinstitute.sting.gatk.io.StingSAMFileWriter;
+import org.broadinstitute.sting.utils.Utils;
 import org.broadinstitute.sting.utils.exceptions.StingException;
 import org.broadinstitute.sting.utils.exceptions.UserException;
-import org.broadinstitute.sting.utils.text.TextFormattingUtils;
 
 import java.io.File;
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by IntelliJ IDEA.
@@ -140,21 +141,7 @@ public class NWaySAMFileWriter implements SAMFileWriter {
     private void addWriter(SAMReaderID id , String outName, SAMFileHeader.SortOrder order, boolean presorted,
                            boolean indexOnTheFly, boolean generateMD5, SAMProgramRecord programRecord) {
         File f = new File(outName);
-        SAMFileHeader header = toolkit.getSAMFileHeader(id).clone();
-        header.setSortOrder(order);
-
-        if ( programRecord != null )  {
-            // --->> add program record
-            List<SAMProgramRecord> oldRecords = header.getProgramRecords();
-            List<SAMProgramRecord> newRecords = new ArrayList<SAMProgramRecord>(oldRecords.size()+1);
-            for ( SAMProgramRecord record : oldRecords ) {
-                if ( !record.getId().startsWith(programRecord.getId()) || KEEP_ALL_PG_RECORDS )
-                    newRecords.add(record);
-            }
-            newRecords.add(programRecord);
-            header.setProgramRecords(newRecords);
-            // <-- add program record ends here
-        }
+        SAMFileHeader header = Utils.setupWriter(toolkit.getSAMFileHeader(id), programRecord);
         SAMFileWriterFactory factory = new SAMFileWriterFactory();
         factory.setCreateIndex(indexOnTheFly);
         factory.setCreateMd5File(generateMD5);
@@ -173,7 +160,11 @@ public class NWaySAMFileWriter implements SAMFileWriter {
             String rg_orig = toolkit.getReadsDataSource().getOriginalReadGroupId(rg);
             samRecord.setAttribute("RG",rg_orig);
         }
-        writerMap.get(id).addAlignment(samRecord);
+        addAlignment(samRecord, id);
+    }
+
+    public void addAlignment(SAMRecord samRecord, SAMReaderID readerID) {
+        writerMap.get(readerID).addAlignment(samRecord);
     }
 
     public SAMFileHeader getFileHeader() {

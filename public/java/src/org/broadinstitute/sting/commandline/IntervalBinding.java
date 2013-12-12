@@ -1,43 +1,43 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
 import com.google.java.contract.Requires;
+import org.broad.tribble.AbstractFeatureReader;
 import org.broad.tribble.Feature;
 import org.broad.tribble.FeatureCodec;
-import org.broad.tribble.readers.AsciiLineReader;
+import org.broad.tribble.FeatureReader;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.gatk.refdata.ReferenceDependentFeatureCodec;
 import org.broadinstitute.sting.gatk.refdata.tracks.FeatureManager;
 import org.broadinstitute.sting.utils.GenomeLoc;
+import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.exceptions.UserException;
 import org.broadinstitute.sting.utils.interval.IntervalUtils;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.*;
 
 /**
@@ -71,41 +71,34 @@ public final class IntervalBinding<T extends Feature> {
         return stringIntervals;
     }
 
-    public List<GenomeLoc> getIntervals(GenomeAnalysisEngine toolkit) {
+    public List<GenomeLoc> getIntervals(final GenomeAnalysisEngine toolkit) {
+        return getIntervals(toolkit.getGenomeLocParser());
+    }
+
+    public List<GenomeLoc> getIntervals(final GenomeLocParser genomeLocParser) {
         List<GenomeLoc> intervals;
 
         if ( featureIntervals != null ) {
             intervals = new ArrayList<GenomeLoc>();
 
-            //RMDTrackBuilder builder = new RMDTrackBuilder(toolkit.getReferenceDataSource().getReference().getSequenceDictionary(),
-            //        toolkit.getGenomeLocParser(),
-            //        toolkit.getArguments().unsafe);
-
             // TODO -- after ROD system cleanup, go through the ROD system so that we can handle things like gzipped files
 
             final FeatureCodec codec = new FeatureManager().getByName(featureIntervals.getTribbleType()).getCodec();
             if ( codec instanceof ReferenceDependentFeatureCodec )
-                ((ReferenceDependentFeatureCodec)codec).setGenomeLocParser(toolkit.getGenomeLocParser());
+                ((ReferenceDependentFeatureCodec)codec).setGenomeLocParser(genomeLocParser);
             try {
-                final FileInputStream fis = new FileInputStream(new File(featureIntervals.getSource()));
-                final AsciiLineReader lineReader = new AsciiLineReader(fis);
-                codec.readHeader(lineReader);
-                String line = lineReader.readLine();
-                while ( line != null ) {
-                    final Feature feature = codec.decodeLoc(line);
-                    if ( feature == null )
-                        throw new UserException.MalformedFile(featureIntervals.getSource(), "Couldn't parse line '" + line + "'");
-                    intervals.add(toolkit.getGenomeLocParser().createGenomeLoc(feature));
-                    line = lineReader.readLine();
-                }
+                FeatureReader<Feature> reader = AbstractFeatureReader.getFeatureReader(featureIntervals.getSource(), codec, false);
+                for ( Feature feature : reader.iterator() )
+                    intervals.add(genomeLocParser.createGenomeLoc(feature));
             } catch (Exception e) {
                 throw new UserException.MalformedFile(featureIntervals.getSource(), "Problem reading the interval file", e);
             }
 
         } else {
-            intervals = IntervalUtils.parseIntervalArguments(toolkit.getGenomeLocParser(), stringIntervals);
+            intervals = IntervalUtils.parseIntervalArguments(genomeLocParser, stringIntervals);
         }
 
+        Collections.sort(intervals);
         return intervals;
     }
 

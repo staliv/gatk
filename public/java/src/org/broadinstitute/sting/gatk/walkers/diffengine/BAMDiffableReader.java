@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.diffengine;
 
@@ -55,8 +56,6 @@ public class BAMDiffableReader implements DiffableReader {
 
         int count = 0;
         while ( iterator.hasNext() ) {
-            if ( count++ > maxElementsToRead && maxElementsToRead != -1)
-                break;
             final SAMRecord record = iterator.next();
 
             // name is the read name + first of pair
@@ -88,6 +87,9 @@ public class BAMDiffableReader implements DiffableReader {
             if ( ! root.hasElement(name) )
                 // protect ourselves from malformed files
                 root.add(readRoot);
+            count += readRoot.size();
+            if ( count > maxElementsToRead && maxElementsToRead != -1)
+                break;
         }
 
         reader.close();
@@ -103,7 +105,9 @@ public class BAMDiffableReader implements DiffableReader {
             InputStream fstream = new BufferedInputStream(new FileInputStream(file));
             if ( !BlockCompressedInputStream.isValidFile(fstream) )
                 return false;
-            new BlockCompressedInputStream(fstream).read(buffer, 0, BAM_MAGIC.length);
+            final BlockCompressedInputStream BCIS = new BlockCompressedInputStream(fstream);
+            BCIS.read(buffer, 0, BAM_MAGIC.length);
+            BCIS.close();
             return Arrays.equals(buffer, BAM_MAGIC);
         } catch ( IOException e ) {
             return false;

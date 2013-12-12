@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+*
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+*
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.help;
 
@@ -28,22 +29,24 @@ import com.google.java.contract.Ensures;
 import com.google.java.contract.Requires;
 import com.sun.javadoc.ClassDoc;
 import com.sun.javadoc.FieldDoc;
-import com.sun.javadoc.RootDoc;
 import com.sun.javadoc.Tag;
+import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.broad.tribble.Feature;
-import org.broad.tribble.bed.FullBEDFeature;
 import org.broadinstitute.sting.commandline.*;
 import org.broadinstitute.sting.gatk.CommandLineGATK;
-import org.broadinstitute.sting.gatk.arguments.DbsnpArgumentCollection;
 import org.broadinstitute.sting.gatk.refdata.tracks.FeatureManager;
+import org.broadinstitute.sting.gatk.walkers.*;
+import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.GenotypeAnnotation;
+import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.InfoFieldAnnotation;
 import org.broadinstitute.sting.utils.Utils;
 import org.broadinstitute.sting.utils.classloader.JVMUtils;
 import org.broadinstitute.sting.utils.collections.Pair;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 import org.broadinstitute.sting.utils.exceptions.StingException;
 
-import java.io.*;
+import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 
@@ -59,16 +62,18 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
      */
     private static final int MAX_DISPLAY_NAME = 30;
 
-    /** The Class we are documenting */
+    /**
+     * The Class we are documenting
+     */
     private GATKDocWorkUnit toProcess;
 
     @Override
     public boolean includeInDocs(ClassDoc doc) {
         try {
-            Class type = HelpUtils.getClassForDoc(doc);
-            boolean hidden = ! getDoclet().showHiddenFeatures() && type.isAnnotationPresent(Hidden.class);
-            return ! hidden && JVMUtils.isConcrete(type);
-        } catch ( ClassNotFoundException e ) {
+            Class type = DocletUtils.getClassForDoc(doc);
+            boolean hidden = !getDoclet().showHiddenFeatures() && type.isAnnotationPresent(Hidden.class);
+            return !hidden && JVMUtils.isConcrete(type);
+        } catch (ClassNotFoundException e) {
             return false;
         }
     }
@@ -89,8 +94,12 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         addHighLevelBindings(root);
         addArgumentBindings(root);
         addRelatedBindings(root);
+        root.put("group", toProcess.group);
 
-        toProcess.setHandlerContent((String)root.get("summary"), root);
+        // Adding in retrieval of peripheral info (rf annotations etc)
+        getClazzAnnotations(toProcess.clazz, root);
+
+        toProcess.setHandlerContent((String) root.get("summary"), root);
     }
 
     /**
@@ -104,35 +113,36 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
         // Extract overrides from the doc tags.
         StringBuilder summaryBuilder = new StringBuilder();
-        for(Tag tag: toProcess.classDoc.firstSentenceTags())
+        for (Tag tag : toProcess.classDoc.firstSentenceTags())
             summaryBuilder.append(tag.text());
         root.put("summary", summaryBuilder.toString());
         root.put("description", toProcess.classDoc.commentText().substring(summaryBuilder.toString().length()));
         root.put("timestamp", toProcess.buildTimestamp);
         root.put("version", toProcess.absoluteVersion);
 
-        for(Tag tag: toProcess.classDoc.tags()) {
+        for (Tag tag : toProcess.classDoc.tags()) {
             root.put(tag.name(), tag.text());
         }
     }
 
     /**
      * Add bindings describing related GATK capabilites to toProcess
+     *
      * @param root
      */
     protected void addRelatedBindings(Map<String, Object> root) {
         List<Map<String, Object>> extraDocsData = new ArrayList<Map<String, Object>>();
 
         // add in all of the explicitly related items
-        for ( final Class extraDocClass : toProcess.annotation.extraDocs() ) {
+        for (final Class extraDocClass : toProcess.annotation.extraDocs()) {
             final GATKDocWorkUnit otherUnit = getDoclet().findWorkUnitForClass(extraDocClass);
-            if ( otherUnit == null )
+            if (otherUnit == null)
                 throw new ReviewedStingException("Requested extraDocs for class without any documentation: " + extraDocClass);
             extraDocsData.add(
-                    new HashMap<String, Object>(){{
+                    new HashMap<String, Object>() {{
                         put("filename", otherUnit.filename);
-                        put("name", otherUnit.name);}});
-
+                        put("name", otherUnit.name);
+                    }});
         }
         root.put("extradocs", extraDocsData);
     }
@@ -149,16 +159,16 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         root.put("arguments", args);
         try {
             // loop over all of the arguments according to the parsing engine
-            for ( final ArgumentSource argumentSource : parsingEngine.extractArgumentSources(HelpUtils.getClassForDoc(toProcess.classDoc)) ) {
+            for (final ArgumentSource argumentSource : parsingEngine.extractArgumentSources(DocletUtils.getClassForDoc(toProcess.classDoc))) {
                 // todo -- why can you have multiple ones?
                 ArgumentDefinition argDef = argumentSource.createArgumentDefinitions().get(0);
                 FieldDoc fieldDoc = getFieldDoc(toProcess.classDoc, argumentSource.field.getName());
                 Map<String, Object> argBindings = docForArgument(fieldDoc, argumentSource, argDef);
-                if ( ! argumentSource.isHidden() || getDoclet().showHiddenFeatures() ) {
+                if (!argumentSource.isHidden() || getDoclet().showHiddenFeatures()) {
                     final String kind = docKindOfArg(argumentSource);
 
                     final Object value = argumentValue(toProcess.clazz, argumentSource);
-                    if ( value != null )
+                    if (value != null)
                         argBindings.put("defaultValue", prettyPrintValueString(value));
 
                     args.get(kind).add(argBindings);
@@ -167,31 +177,48 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
             }
 
             // sort the arguments
-            for (Map.Entry<String,List<Map<String, Object>>> entry : args.entrySet()) {
+            for (Map.Entry<String, List<Map<String, Object>>> entry : args.entrySet()) {
                 entry.setValue(sortArguments(entry.getValue()));
             }
-        } catch ( ClassNotFoundException e ) {
+        } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
         }
     }
 
     /**
      * Return the argument kind (required, advanced, hidden, etc) of this argumentSource
+     *
      * @param argumentSource
      * @return
      */
     @Requires("argumentSource != null")
     @Ensures("result != null")
     private String docKindOfArg(ArgumentSource argumentSource) {
-        if ( argumentSource.isRequired() ) return "required";
-        else if ( argumentSource.isAdvanced() ) return "advanced";
-        else if ( argumentSource.isHidden() ) return "hidden";
-        else if ( argumentSource.isDeprecated() ) return "depreciated";
-        else return "optional";
+        if (argumentSource.isRequired()) {
+            if (argumentSource.isInput()) return "required_in";
+            else if (argumentSource.isOutput()) return "required_out";
+            else if (argumentSource.isFlag()) return "required_flag";
+            else return "required_param";
+            }
+        else if (argumentSource.isAdvanced()) {
+            if (argumentSource.isInput()) return "advanced_in";
+            else if (argumentSource.isOutput()) return "advanced_out";
+            else if (argumentSource.isFlag()) return "advanced_flag";
+            else return "advanced_param";
+        }
+        else if (argumentSource.isHidden()) return "hidden";
+        else if (argumentSource.isDeprecated()) return "deprecated";
+        else {
+            if (argumentSource.isInput()) return "optional_in";
+            else if (argumentSource.isOutput()) return "optional_out";
+            else if (argumentSource.isFlag()) return "optional_flag";
+            else return "optional_param";
+        }
     }
 
     /**
      * Attempts to determine the value of argumentSource in an instantiated version of c
+     *
      * @param c
      * @param argumentSource
      * @return value of argumentSource, or null if this isn't possible
@@ -201,12 +228,12 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         // get the value of the field
         // attempt to instantiate the class
         final Object instance = makeInstanceIfPossible(toProcess.clazz);
-        if ( instance != null ) {
+        if (instance != null) {
             final Object value = getFieldValue(instance, argumentSource.field.getName());
-            if ( value != null )
+            if (value != null)
                 return value;
 
-            if ( argumentSource.createsTypeDefault() ) {
+            if (argumentSource.createsTypeDefault()) {
                 try { // handle the case where there's an implicit default
                     return argumentSource.typeDefaultDocString();
                 } catch (ReviewedStingException e) {
@@ -220,22 +247,33 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Create the argument map for holding class arguments
+     *
      * @return
      */
     private Map<String, List<Map<String, Object>>> createArgumentMap() {
         Map<String, List<Map<String, Object>>> args = new HashMap<String, List<Map<String, Object>>>();
         args.put("all", new ArrayList<Map<String, Object>>());
-        args.put("required", new ArrayList<Map<String, Object>>());
-        args.put("optional", new ArrayList<Map<String, Object>>());
-        args.put("advanced", new ArrayList<Map<String, Object>>());
+        args.put("required_in", new ArrayList<Map<String, Object>>());
+        args.put("required_out", new ArrayList<Map<String, Object>>());
+        args.put("required_param", new ArrayList<Map<String, Object>>());
+        args.put("required_flag", new ArrayList<Map<String, Object>>());
+        args.put("optional_in", new ArrayList<Map<String, Object>>());
+        args.put("optional_out", new ArrayList<Map<String, Object>>());
+        args.put("optional_param", new ArrayList<Map<String, Object>>());
+        args.put("optional_flag", new ArrayList<Map<String, Object>>());
+        args.put("advanced_in", new ArrayList<Map<String, Object>>());
+        args.put("advanced_out", new ArrayList<Map<String, Object>>());
+        args.put("advanced_param", new ArrayList<Map<String, Object>>());
+        args.put("advanced_flag", new ArrayList<Map<String, Object>>());
         args.put("hidden", new ArrayList<Map<String, Object>>());
-        args.put("depreciated", new ArrayList<Map<String, Object>>());
+        args.put("deprecated", new ArrayList<Map<String, Object>>());
         return args;
     }
 
 
     /**
      * Sorts the individual argument list in unsorted according to CompareArgumentsByName
+     *
      * @param unsorted
      * @return
      */
@@ -254,9 +292,9 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
         private String elt(Map<String, Object> m) {
             String v = m.get("name").toString().toLowerCase();
-            if ( v.startsWith("--") )
+            if (v.startsWith("--"))
                 return v.substring(2);
-            else if ( v.startsWith("-") )
+            else if (v.startsWith("-"))
                 return v.substring(1);
             else
                 throw new RuntimeException("Expect to see arguments beginning with at least one -, but found " + v);
@@ -264,10 +302,275 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
     }
 
     /**
+     * Umbrella function that groups the collection of values for specific annotations applied to an
+     * instance of class c. Lists of collected values are added directly to the "toProcess" object.
+     * Requires being able to instantiate the class.
+     *
+     * @param classToProcess the object to instantiate and query for the annotation
+     * @param root the root of the document handler, to which we'll store collected annotations
+     */
+    private void getClazzAnnotations(Class classToProcess, Map<String, Object> root) {
+        //
+        // attempt to instantiate the class
+        final Object instance = makeInstanceIfPossible(classToProcess);
+        if (instance != null) {
+            final Class myClass = instance.getClass();
+            // Get parallelism options
+            final HashSet<HashMap<String, Object>> parallelOptions = getParallelism(myClass, new HashSet<HashMap<String, Object>>());
+            root.put("parallel", parallelOptions);
+            // Get annotation info (what type of annotation, standard etc.)
+            final HashSet<String> annotInfo = getAnnotInfo(myClass, new HashSet<String>());
+            root.put("annotinfo", StringUtils.join(annotInfo, ", "));
+            // Get annotation field (whether it goes in INFO or FORMAT)
+            root.put("annotfield", getAnnotField(myClass));
+            // Get walker type if applicable
+            root.put("walkertype", getWalkerType(myClass));
+            // Get partition type if applicable
+            root.put("partitiontype", getPartitionType(myClass));
+            // Get read filter annotations (ReadFilters) if applicable
+            final HashSet<HashMap<String, Object>> bucket= getReadFilters(myClass, new HashSet<HashMap<String, Object>>());
+            root.put("readfilters", bucket);
+            // Get default downsampling settings
+            final HashMap<String, Object> dsSettings = getDownSamplingSettings(myClass, new HashMap<String, Object>());
+            root.put("downsampling", dsSettings);
+            // Get reference window size settings
+            final HashMap<String, Object> refwindow = getRefWindow(myClass, new HashMap<String, Object>());
+            root.put("refwindow", refwindow);
+            // Get ActiveRegion size settings
+            final HashMap<String, Object> activeRegion = getActiveRegion(myClass, new HashMap<String, Object>());
+            root.put("activeregion", activeRegion);
+            // anything else?
+        } else {
+            // put empty items to avoid blowups
+            root.put("parallel", new HashSet<String>());
+            root.put("annotinfo", "");
+            root.put("annotfield", "");
+            root.put("walkertype", "");
+            root.put("partitiontype", "");
+            root.put("readfilters", new HashSet<HashMap<String, Object>>());
+            root.put("downsampling", new HashMap<String, Object>());
+            root.put("refwindow", new HashMap<String, Object>());
+            root.put("activeregion", new HashMap<String, Object>());
+        }
+    }
+
+    /**
+     * Utility function that checks which parallelism options are available for an instance of class c.
+     *
+     * @param myClass the class to query for the interfaces
+     * @param parallelOptions an empty HashSet in which to collect the info
+     * @return a hash set of parallelism options, otherwise an empty set
+     */
+    private HashSet<HashMap<String, Object>> getParallelism(Class myClass, HashSet<HashMap<String, Object>> parallelOptions) {
+        //
+        // Retrieve interfaces
+        Class[] implementedInterfaces = myClass.getInterfaces();
+        for (Class intfClass : implementedInterfaces) {
+            final HashMap<String, Object> nugget = new HashMap<String, Object>();
+            if (intfClass.getSimpleName().equals("TreeReducible")) {
+                nugget.put("name", intfClass.getSimpleName());
+                nugget.put("arg", HelpConstants.ARG_TREEREDUCIBLE);
+                nugget.put("link", HelpConstants.CMDLINE_GATK_URL + "#" + HelpConstants.ARG_TREEREDUCIBLE);
+            } else if (intfClass.getSimpleName().equals("NanoSchedulable")) {
+                nugget.put("name", intfClass.getSimpleName());
+                nugget.put("arg", HelpConstants.ARG_NANOSCHEDULABLE);
+                nugget.put("link", HelpConstants.CMDLINE_GATK_URL + "#" + HelpConstants.ARG_NANOSCHEDULABLE);
+            } else {
+                continue;
+            }
+            parallelOptions.add(nugget);
+        }
+        // Look up superclasses recursively
+        final Class mySuperClass = myClass.getSuperclass();
+        if (mySuperClass.getSimpleName().equals("Object")) {
+            return parallelOptions;
+        }
+        return getParallelism(mySuperClass, parallelOptions);
+    }
+
+    /**
+     * Utility function that looks up whether the annotation goes in INFO or FORMAT field.
+     *
+     * @param myClass the class to query for the interfaces
+     * @return a String specifying the annotation field
+     */
+    private final String getAnnotField(Class myClass) {
+        //
+        // Look up superclasses recursively until we find either
+        // GenotypeAnnotation or InfoFieldAnnotation
+        final Class mySuperClass = myClass.getSuperclass();
+        if (mySuperClass == InfoFieldAnnotation.class) {
+            return "INFO (variant-level)";
+        } else if (mySuperClass == GenotypeAnnotation.class) {
+            return "FORMAT (sample genotype-level)";
+        } else if (mySuperClass.getSimpleName().equals("Object")) {
+            return "";
+        }
+        return getAnnotField(mySuperClass);
+    }
+
+    /**
+     * Utility function that determines the annotation type for an instance of class c.
+     *
+     * @param myClass the class to query for the interfaces
+     * @param annotInfo an empty HashSet in which to collect the info
+     * @return a hash set of the annotation types, otherwise an empty set
+     */
+    private HashSet<String> getAnnotInfo(Class myClass, HashSet<String> annotInfo) {
+        //
+        // Retrieve interfaces
+        Class[] implementedInterfaces = myClass.getInterfaces();
+        for (Class intfClass : implementedInterfaces) {
+            if (intfClass.getName().contains("Annotation")) {
+                annotInfo.add(intfClass.getSimpleName());
+            }
+        }
+        // Look up superclasses recursively
+        final Class mySuperClass = myClass.getSuperclass();
+        if (mySuperClass.getSimpleName().equals("Object")) {
+            return annotInfo;
+        }
+        return getAnnotInfo(mySuperClass, annotInfo);
+    }
+
+    /**
+     * Utility function that determines the default downsampling settings for an instance of class c.
+     *
+     * @param myClass the class to query for the settings
+     * @param dsSettings an empty HashMap in which to collect the info
+     * @return a hash set of the downsampling settings, otherwise an empty set
+     */
+    private HashMap<String, Object> getDownSamplingSettings(Class myClass, HashMap<String, Object> dsSettings) {
+        //
+        // Retrieve annotation
+        if (myClass.isAnnotationPresent(Downsample.class)) {
+            final Annotation thisAnnotation = myClass.getAnnotation(Downsample.class);
+            if(thisAnnotation instanceof Downsample) {
+                final Downsample dsAnnotation = (Downsample) thisAnnotation;
+                dsSettings.put("by", dsAnnotation.by().toString());
+                dsSettings.put("to_cov", dsAnnotation.toCoverage());
+            }
+        }
+        return dsSettings;
+    }
+
+    /**
+     * Utility function that determines the reference window size for an instance of class c.
+     *
+     * @param myClass the class to query for the settings
+     * @param refWindow an empty HashMap in which to collect the info
+     * @return a HashMap of the window start and stop, otherwise an empty HashMap
+     */
+    private HashMap<String, Object> getRefWindow(Class myClass, HashMap<String, Object> refWindow) {
+        //
+        // Retrieve annotation
+        if (myClass.isAnnotationPresent(Reference.class)) {
+            final Annotation thisAnnotation = myClass.getAnnotation(Reference.class);
+            if(thisAnnotation instanceof Reference) {
+                final Reference refAnnotation = (Reference) thisAnnotation;
+                refWindow.put("start", refAnnotation.window().start());
+                refWindow.put("stop", refAnnotation.window().stop());
+            }
+        }
+        return refWindow;
+    }
+
+    /**
+     * Utility function that determines the ActiveRegion settings for an instance of class c.
+     *
+     * @param myClass the class to query for the settings
+     * @param activeRegion an empty HashMap in which to collect the info
+     * @return a HashMap of the ActiveRegion parameters, otherwise an empty HashMap
+     */
+    private HashMap<String, Object> getActiveRegion(Class myClass, HashMap<String, Object> activeRegion) {
+        //
+        // Retrieve annotation
+        if (myClass.isAnnotationPresent(ActiveRegionTraversalParameters.class)) {
+            final Annotation thisAnnotation = myClass.getAnnotation(ActiveRegionTraversalParameters.class);
+            if(thisAnnotation instanceof ActiveRegionTraversalParameters) {
+                final ActiveRegionTraversalParameters arAnnotation = (ActiveRegionTraversalParameters) thisAnnotation;
+                activeRegion.put("ext", arAnnotation.extension());
+                activeRegion.put("max", arAnnotation.maxRegion());
+                activeRegion.put("min", arAnnotation.minRegion());
+            }
+        }
+        return activeRegion;
+    }
+
+    /**
+     * Utility function that determines the partition type of an instance of class c.
+     *
+     * @param myClass the class to query for the annotation
+     * @return the partition type if applicable, otherwise an empty string
+     */
+    private String getPartitionType(Class myClass) {
+        //
+        // Retrieve annotation
+        if (myClass.isAnnotationPresent(PartitionBy.class)) {
+            final Annotation thisAnnotation = myClass.getAnnotation(PartitionBy.class);
+            if(thisAnnotation instanceof PartitionBy) {
+                final PartitionBy partAnnotation = (PartitionBy) thisAnnotation;
+                return partAnnotation.value().toString();
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Utility function that determines the type of walker subclassed by an instance of class c.
+     *
+     * @param myClass the class to query for the annotation
+     * @return the type of walker if applicable, otherwise an empty string
+     */
+    private String getWalkerType(Class myClass) {
+        //
+        // Look up superclasses recursively until we find either Walker or Object
+        final Class mySuperClass = myClass.getSuperclass();
+        if (mySuperClass.getSimpleName().equals("Walker")) {
+            return myClass.getSimpleName();
+        } else if (mySuperClass.getSimpleName().equals("Object")) {
+            return "";
+        }
+        return getWalkerType(mySuperClass);
+    }
+
+    /**
+     * Utility function that finds the values of ReadFilters annotation applied to an instance of class c.
+     *
+     * @param myClass the class to query for the annotation
+     * @param bucket a container in which we store the annotations collected
+     * @return a hash set of values, otherwise an empty set
+     */
+    private HashSet<HashMap<String, Object>> getReadFilters(Class myClass, HashSet<HashMap<String, Object>> bucket) {
+        //
+        // Retrieve annotation
+        if (myClass.isAnnotationPresent(ReadFilters.class)) {
+            final Annotation thisAnnotation = myClass.getAnnotation(ReadFilters.class);
+            if(thisAnnotation instanceof ReadFilters) {
+                final ReadFilters rfAnnotation = (ReadFilters) thisAnnotation;
+                for (Class<?> filter : rfAnnotation.value()) {
+                    // make hashmap of simplename and url
+                    final HashMap<String, Object> nugget = new HashMap<String, Object>();
+                    nugget.put("name", filter.getSimpleName());
+                    nugget.put("filename", GATKDocUtils.htmlFilenameForClass(filter));
+                    bucket.add(nugget);
+                }
+            }
+        }
+        // Look up superclasses recursively
+        final Class mySuperClass = myClass.getSuperclass();
+        if (mySuperClass.getSimpleName().equals("Object")) {
+            return bucket;
+        }
+        return getReadFilters(mySuperClass, bucket);
+    }
+
+
+    /**
      * Utility function that finds the value of fieldName in any fields of ArgumentCollection fields in
      * instance of class c.
      *
-     * @param instance the object to query for the field value
+     * @param instance  the object to query for the field value
      * @param fieldName the name of the field we are looking for in instance
      * @return The value assigned to field in the ArgumentCollection, otherwise null
      */
@@ -280,14 +583,15 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         // @ArgumentCollection
         // protected DbsnpArgumentCollection dbsnp = new DbsnpArgumentCollection();
         //
-        for ( Field field : JVMUtils.getAllFields(instance.getClass()) ) {
-            if ( field.isAnnotationPresent(ArgumentCollection.class) ) {
+
+        for (Field field : JVMUtils.getAllFields(instance.getClass())) {
+            if (field.isAnnotationPresent(ArgumentCollection.class)) {
                 //System.out.printf("Searching for %s in argument collection field %s%n", fieldName, field);
                 Object fieldValue = JVMUtils.getFieldValue(field, instance);
                 Object value = getFieldValue(fieldValue, fieldName);
-                if ( value != null )
+                if (value != null)
                     return value;
-            } else if ( field.getName().equals(fieldName) ) {
+            } else if (field.getName().equals(fieldName)) {
                 return JVMUtils.getFieldValue(field, instance);
             }
         }
@@ -297,38 +601,39 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Pretty prints value
-     *
+     * <p/>
      * Assumes value != null
+     *
      * @param value
      * @return
      */
     private Object prettyPrintValueString(Object value) {
-        if ( value.getClass().isArray() ) {
+        if (value.getClass().isArray()) {
             Class type = value.getClass().getComponentType();
-            if ( boolean.class.isAssignableFrom(type) )
-                return Arrays.toString((boolean[])value);
-            if ( byte.class.isAssignableFrom(type) )
-                return Arrays.toString((byte[])value);
-            if ( char.class.isAssignableFrom(type) )
-                return Arrays.toString((char[])value);
-            if ( double.class.isAssignableFrom(type) )
-                return Arrays.toString((double[])value);
-            if ( float.class.isAssignableFrom(type) )
-                return Arrays.toString((float[])value);
-            if ( int.class.isAssignableFrom(type) )
-                return Arrays.toString((int[])value);
-            if ( long.class.isAssignableFrom(type) )
-                return Arrays.toString((long[])value);
-            if ( short.class.isAssignableFrom(type) )
-                return Arrays.toString((short[])value);
-            if ( Object.class.isAssignableFrom(type) )
-                return Arrays.toString((Object[])value);
+            if (boolean.class.isAssignableFrom(type))
+                return Arrays.toString((boolean[]) value);
+            if (byte.class.isAssignableFrom(type))
+                return Arrays.toString((byte[]) value);
+            if (char.class.isAssignableFrom(type))
+                return Arrays.toString((char[]) value);
+            if (double.class.isAssignableFrom(type))
+                return Arrays.toString((double[]) value);
+            if (float.class.isAssignableFrom(type))
+                return Arrays.toString((float[]) value);
+            if (int.class.isAssignableFrom(type))
+                return Arrays.toString((int[]) value);
+            if (long.class.isAssignableFrom(type))
+                return Arrays.toString((long[]) value);
+            if (short.class.isAssignableFrom(type))
+                return Arrays.toString((short[]) value);
+            if (Object.class.isAssignableFrom(type))
+                return Arrays.toString((Object[]) value);
             else
                 throw new RuntimeException("Unexpected array type in prettyPrintValue.  Value was " + value + " type is " + type);
-        } else if ( RodBinding.class.isAssignableFrom(value.getClass() ) ) {
+        } else if (RodBinding.class.isAssignableFrom(value.getClass())) {
             // annoying special case to handle the UnBound() constructor
             return "none";
-        } else if ( value instanceof String ) {
+        } else if (value instanceof String) {
             return value.equals("") ? "\"\"" : value;
         } else {
             return value.toString();
@@ -337,6 +642,7 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Attempt to instantiate class c, if possible.  Returns null if this proves impossible.
+     *
      * @param c
      * @return
      */
@@ -344,21 +650,22 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         Object instance = null;
         try {
             // don't try to make something where we will obviously fail
-            if (! c.isEnum() && ! c.isAnnotation() && ! c.isAnonymousClass() &&
-                    ! c.isArray() && ! c.isPrimitive() & JVMUtils.isConcrete(c) ) {
+            if (!c.isEnum() && !c.isAnnotation() && !c.isAnonymousClass() &&
+                    !c.isArray() && !c.isPrimitive() & JVMUtils.isConcrete(c)) {
                 instance = c.newInstance();
                 //System.out.printf("Created object of class %s => %s%n", c, instance);
                 return instance;
             } else
                 return null;
+        } catch (IllegalAccessException e) {
+        } catch (InstantiationException e) {
+        } catch (ExceptionInInitializerError e) {
+        } catch (SecurityException e) {
         }
-        catch (IllegalAccessException e ) { }
-        catch (InstantiationException e ) { }
-        catch (ExceptionInInitializerError e ) { }
-        catch (SecurityException e ) { }
         // this last one is super dangerous, but some of these methods catch ClassNotFoundExceptions
         // and rethrow then as RuntimeExceptions
-        catch (RuntimeException e) {}
+        catch (RuntimeException e) {
+        }
 
         return instance;
     }
@@ -366,6 +673,7 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Create an instance of the GATK parsing engine, for argument processing with GATKDoclet
+     *
      * @return
      */
     private ParsingEngine createStandardGATKParsingEngine() {
@@ -392,6 +700,7 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Recursive helper routine to getFieldDoc()
+     *
      * @param classDoc
      * @param name
      * @param primary
@@ -399,21 +708,21 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
      */
     private FieldDoc getFieldDoc(ClassDoc classDoc, String name, boolean primary) {
         //System.out.printf("Looking for %s in %s%n", name, classDoc.name());
-        for ( FieldDoc fieldDoc : classDoc.fields(false) ) {
+        for (FieldDoc fieldDoc : classDoc.fields(false)) {
             //System.out.printf("fieldDoc " + fieldDoc + " name " + fieldDoc.name());
-            if ( fieldDoc.name().equals(name) )
+            if (fieldDoc.name().equals(name))
                 return fieldDoc;
 
-            Field field = HelpUtils.getFieldForFieldDoc(fieldDoc);
-            if ( field == null )
+            Field field = DocletUtils.getFieldForFieldDoc(fieldDoc);
+            if (field == null)
                 throw new RuntimeException("Could not find the field corresponding to " + fieldDoc + ", presumably because the field is inaccessible");
-            if ( field.isAnnotationPresent(ArgumentCollection.class) ) {
+            if (field.isAnnotationPresent(ArgumentCollection.class)) {
                 ClassDoc typeDoc = getRootDoc().classNamed(fieldDoc.type().qualifiedTypeName());
-                if ( typeDoc == null )
+                if (typeDoc == null)
                     throw new ReviewedStingException("Tried to get javadocs for ArgumentCollection field " + fieldDoc + " but could't find the class in the RootDoc");
                 else {
                     FieldDoc result = getFieldDoc(typeDoc, name, false);
-                    if ( result != null )
+                    if (result != null)
                         return result;
                     // else keep searching
                 }
@@ -421,11 +730,11 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         }
 
         // if we didn't find it here, wander up to the superclass to find the field
-        if ( classDoc.superclass() != null ) {
+        if (classDoc.superclass() != null) {
             return getFieldDoc(classDoc.superclass(), name, false);
         }
 
-        if ( primary )
+        if (primary)
             throw new RuntimeException("No field found for expected field " + name);
         else
             return null;
@@ -439,20 +748,20 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
      * @param s1 the short argument name without -, or null if not provided
      * @param s2 the long argument name without --, or null if not provided
      * @return A pair of fully qualified names (with - or --) for the argument.  The first
-     *  element is the primary display name while the second (potentially null) is a
-     *  synonymous name.
+     *         element is the primary display name while the second (potentially null) is a
+     *         synonymous name.
      */
     Pair<String, String> displayNames(String s1, String s2) {
         s1 = s1 == null ? null : "-" + s1;
         s2 = s2 == null ? null : "--" + s2;
 
-        if ( s1 == null ) return new Pair<String, String>(s2, null);
-        if ( s2 == null ) return new Pair<String, String>(s1, null);
+        if (s1 == null) return new Pair<String, String>(s2, null);
+        if (s2 == null) return new Pair<String, String>(s1, null);
 
         String l = s1.length() > s2.length() ? s1 : s2;
         String s = s1.length() > s2.length() ? s2 : s1;
 
-        if ( l.length() > MAX_DISPLAY_NAME )
+        if (l.length() > MAX_DISPLAY_NAME)
             return new Pair<String, String>(s, l);
         else
             return new Pair<String, String>(l, s);
@@ -460,7 +769,7 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
 
     /**
      * Returns a human readable string that describes the Type type of a GATK argument.
-     *
+     * <p/>
      * This will include parameterized types, so that Set{T} shows up as Set(T) and not
      * just Set in the docs.
      *
@@ -469,13 +778,13 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
      */
     protected String argumentTypeString(Type type) {
         if (type instanceof ParameterizedType) {
-            ParameterizedType parameterizedType = (ParameterizedType)type;
+            ParameterizedType parameterizedType = (ParameterizedType) type;
             List<String> subs = new ArrayList<String>();
-            for (Type actualType: parameterizedType.getActualTypeArguments())
+            for (Type actualType : parameterizedType.getActualTypeArguments())
                 subs.add(argumentTypeString(actualType));
-            return argumentTypeString(((ParameterizedType)type).getRawType()) + "[" + Utils.join(",", subs) + "]";
+            return argumentTypeString(((ParameterizedType) type).getRawType()) + "[" + Utils.join(",", subs) + "]";
         } else if (type instanceof GenericArrayType) {
-            return  argumentTypeString(((GenericArrayType)type).getGenericComponentType()) + "[]";
+            return argumentTypeString(((GenericArrayType) type).getGenericComponentType()) + "[]";
         } else if (type instanceof WildcardType) {
             throw new RuntimeException("We don't support wildcards in arguments: " + type);
         } else if (type instanceof Class<?>) {
@@ -489,18 +798,19 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
      * Helper routine that returns the Feature.class required by a RodBinding,
      * either T for RodBinding{T} or List{RodBinding{T}}.  Returns null if
      * the Type doesn't fit either model.
+     *
      * @param type
      * @return
      */
     protected Class<? extends Feature> getFeatureTypeIfPossible(Type type) {
-        if ( type instanceof ParameterizedType) {
-            ParameterizedType paramType = (ParameterizedType)type;
-            if ( RodBinding.class.isAssignableFrom((Class<?>)paramType.getRawType()) ) {
-                return (Class<? extends Feature>)JVMUtils.getParameterizedTypeClass(type);
+        if (type instanceof ParameterizedType) {
+            ParameterizedType paramType = (ParameterizedType) type;
+            if (RodBinding.class.isAssignableFrom((Class<?>) paramType.getRawType())) {
+                return (Class<? extends Feature>) JVMUtils.getParameterizedTypeClass(type);
             } else {
-                for ( Type paramtype : paramType.getActualTypeArguments() ) {
+                for (Type paramtype : paramType.getActualTypeArguments()) {
                     Class<? extends Feature> x = getFeatureTypeIfPossible(paramtype);
-                    if ( x != null )
+                    if (x != null)
                         return x;
                 }
             }
@@ -512,6 +822,7 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
     /**
      * High-level entry point for creating a FreeMarker map describing the GATK argument
      * source with definition def, with associated javadoc fieldDoc.
+     *
      * @param fieldDoc
      * @param source
      * @param def
@@ -521,9 +832,9 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         Map<String, Object> root = new HashMap<String, Object>();
         Pair<String, String> names = displayNames(def.shortName, def.fullName);
 
-        root.put("name", names.getFirst() );
+        root.put("name", names.getFirst());
 
-        if ( names.getSecond() != null )
+        if (names.getSecond() != null)
             root.put("synonyms", names.getSecond());
 
         root.put("required", def.required ? "yes" : "no");
@@ -532,11 +843,11 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         root.put("type", argumentTypeString(source.field.getGenericType()));
 
         Class<? extends Feature> featureClass = getFeatureTypeIfPossible(source.field.getGenericType());
-        if ( featureClass != null ) {
+        if (featureClass != null) {
             // deal with the allowable types
             FeatureManager manager = new FeatureManager();
             List<String> rodTypes = new ArrayList<String>();
-            for (FeatureManager.FeatureDescriptor descriptor : manager.getByFeature(featureClass) ) {
+            for (FeatureManager.FeatureDescriptor descriptor : manager.getByFeature(featureClass)) {
                 rodTypes.add(String.format("<a href=%s>%s</a>",
                         GATKDocUtils.htmlFilenameForClass(descriptor.getCodecClass()),
                         descriptor.getName()));
@@ -550,14 +861,14 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
         root.put("fulltext", fieldDoc.commentText());
 
         // What are our enum options?
-        if ( def.validOptions != null )
+        if (def.validOptions != null)
             root.put("options", docForEnumArgument(source.field.getType()));
 
         // general attributes
         List<String> attributes = new ArrayList<String>();
-        if ( def.required ) attributes.add("required");
-        if ( source.isDeprecated() ) attributes.add("depreciated");
-        if ( attributes.size() > 0 )
+        if (def.required) attributes.add("required");
+        if (source.isDeprecated()) attributes.add("deprecated");
+        if (attributes.size() > 0)
             root.put("attributes", Utils.join(", ", attributes));
 
         return root;
@@ -566,23 +877,44 @@ public class GenericDocumentationHandler extends DocumentedGATKFeatureHandler {
     /**
      * Helper routine that provides a FreeMarker map for an enumClass, grabbing the
      * values of the enum and their associated javadoc documentation.
+     *
      * @param enumClass
      * @return
      */
     @Requires("enumClass.isEnum()")
-    private List<Map<String, Object>> docForEnumArgument(Class enumClass) {
-        ClassDoc doc = this.getDoclet().getClassDocForClass(enumClass);
-        if ( doc == null ) //  || ! doc.isEnum() )
-            throw new RuntimeException("Tried to get docs for enum " + enumClass + " but got instead: " + doc);
+    private List<Map<String, Object>> docForEnumArgument(final Class enumClass) {
+        final ClassDoc doc = this.getDoclet().getClassDocForClass(enumClass);
+        if ( doc == null )
+            throw new RuntimeException("Tried to get docs for enum " + enumClass + " but got null instead");
 
-        List<Map<String, Object>> bindings = new ArrayList<Map<String, Object>>();
-        for (final FieldDoc field : doc.fields(false) ) {
-            bindings.add(
-                    new HashMap<String, Object>(){{
-                        put("name", field.name());
-                        put("summary", field.commentText());}});
+        final Set<String> enumConstantFieldNames = enumConstantsNames(enumClass);
+
+        final List<Map<String, Object>> bindings = new ArrayList<Map<String, Object>>();
+        for (final FieldDoc fieldDoc : doc.fields(false)) {
+            if (enumConstantFieldNames.contains(fieldDoc.name()) )
+                bindings.add(
+                        new HashMap<String, Object>() {{
+                            put("name", fieldDoc.name());
+                            put("summary", fieldDoc.commentText());
+                        }});
         }
 
         return bindings;
+    }
+
+    /**
+     * Returns the name of the fields that are enum constants according to reflection
+     *
+     * @return a non-null set of fields that are enum constants
+     */
+    private Set<String> enumConstantsNames(final Class enumClass) {
+        final Set<String> enumConstantFieldNames = new HashSet<String>();
+
+        for ( final Field field : enumClass.getFields() ) {
+            if ( field.isEnumConstant() )
+                enumConstantFieldNames.add(field.getName());
+        }
+
+        return enumConstantFieldNames;
     }
 }

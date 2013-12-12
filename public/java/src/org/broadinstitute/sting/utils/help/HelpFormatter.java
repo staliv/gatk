@@ -1,35 +1,32 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.help;
 
 import org.apache.log4j.Logger;
-import org.broadinstitute.sting.commandline.ArgumentDefinition;
-import org.broadinstitute.sting.commandline.ArgumentDefinitionGroup;
-import org.broadinstitute.sting.commandline.ArgumentDefinitions;
-import org.broadinstitute.sting.commandline.ArgumentMatchSource;
+import org.broadinstitute.sting.commandline.*;
 import org.broadinstitute.sting.utils.Utils;
 import org.broadinstitute.sting.utils.text.TextFormattingUtils;
 
@@ -273,9 +270,9 @@ public class HelpFormatter {
      * Generate a standard header for the logger
      *
      * @param applicationDetails details of the application to run.
-     * @param parsedArgs the command line arguments passed in
+     * @param parsedArgs the arguments passed in
      */
-    public static void generateHeaderInformation(ApplicationDetails applicationDetails, Map<ArgumentMatchSource, List<String>> parsedArgs) {
+    public static void generateHeaderInformation(ApplicationDetails applicationDetails, Map<ArgumentMatchSource, ParsedArgs> parsedArgs) {
 
         DateFormat dateFormat = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
         java.util.Date date = new java.util.Date();
@@ -286,19 +283,16 @@ public class HelpFormatter {
         for (String headerLine : applicationDetails.applicationHeader)
             logger.info(headerLine);
         logger.debug("Current directory: " + System.getProperty("user.dir"));
-        for (Map.Entry<ArgumentMatchSource, List<String>> entry: parsedArgs.entrySet()) {
+        for (Map.Entry<ArgumentMatchSource, ParsedArgs> entry: parsedArgs.entrySet()) {
             ArgumentMatchSource matchSource = entry.getKey();
             final String sourceName;
             switch (matchSource.getType()) {
                 case CommandLine: sourceName = "Program"; break;
-                case File: sourceName = matchSource.getFile().getPath(); break;
+                case Provider: sourceName = matchSource.getDescription(); break;
                 default: throw new RuntimeException("Unexpected argument match source type: " + matchSource.getType());
             }
 
-            String output = sourceName + " Args:";
-            for (String str : entry.getValue()) {
-                output = output + " " + str;
-            }
+            String output = sourceName + " Args: " + entry.getValue().getDescription();
             logger.info(output);
         }
         logger.info("Date/Time: " + dateFormat.format(date));

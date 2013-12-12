@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.function
 
@@ -28,10 +29,10 @@ import java.io.File
 import java.lang.annotation.Annotation
 import org.broadinstitute.sting.commandline._
 import org.broadinstitute.sting.queue.{QException, QSettings}
-import collection.JavaConversions._
 import java.lang.IllegalStateException
 import org.broadinstitute.sting.queue.util._
 import org.broadinstitute.sting.utils.io.IOUtils
+import scala.language.reflectiveCalls
 
 /**
  * The base interface for all functions in Queue.
@@ -59,8 +60,16 @@ trait QFunction extends Logging with QJobReport {
   /** Directory to run the command in. */
   var commandDirectory: File = new File(".")
 
-  /** Temporary directory to write any files */
+  /** Temporary directory to write any files. Must be network accessible. */
   var jobTempDir: File = null
+
+  /**
+   * Local path available on all machines to store LOCAL temporary files. Not an @Input,
+   * nor an @Output. Currently only used for local intermediate files for composite jobs.
+   * Needs to be an annotated field so that it's mutated during cloning.
+   */
+  @Argument(doc="Local path available on all machines to store LOCAL temporary files.")
+  var jobLocalDir: File = _
 
   /** Order the function was added to the graph. */
   var addOrder: Seq[Int] = Nil
@@ -97,6 +106,7 @@ trait QFunction extends Logging with QJobReport {
     function.qSettings = this.qSettings
     function.commandDirectory = this.commandDirectory
     function.jobTempDir = this.jobTempDir
+    function.jobLocalDir = this.jobLocalDir
     function.addOrder = this.addOrder
     function.jobPriority = this.jobPriority
     function.jobRestartable = this.jobRestartable
@@ -112,6 +122,20 @@ trait QFunction extends Logging with QJobReport {
   /** File to redirect any errors.  Defaults to <jobName>.out */
   var jobErrorFile: File = _
 
+  /** Errors (if any) from the last failed run of jobErrorFiles. */
+  @Argument(doc="Job error lines", required=false)
+  var jobErrorLines: Seq[String] = Nil
+
+  /**
+   * The number of times this function has previously been run.
+   */
+  @Argument(doc="Job retries", required=false)
+  var retries = 0
+
+  /** Change settings for the next run. Retries will be set to the number of times the function was run and jobErrorLines may contain the error text. */
+  def setupRetry() {
+  }
+
   /**
    * Description of this command line function.
    */
@@ -126,6 +150,11 @@ trait QFunction extends Logging with QJobReport {
       case _ => analysisName
     }
   }
+  
+  /**
+   * The name of the job as submitted to the job runner
+   */
+  def jobRunnerJobName = shortDescription
 
   /**
    * Returns true if the function is done.
@@ -180,13 +209,13 @@ trait QFunction extends Logging with QJobReport {
   def failOutputs: Seq[File] = statusPrefixes.map(path => new File(path + ".fail"))
 
   /** The complete list of fields on this CommandLineFunction. */
-  def functionFields = QFunction.classFields(this.functionFieldClass).functionFields
+  def functionFields: Seq[ArgumentSource] = ClassFieldCache.classFunctionFields(this.functionFieldClass)
   /** The @Input fields on this CommandLineFunction. */
-  def inputFields = QFunction.classFields(this.functionFieldClass).inputFields
+  def inputFields: Seq[ArgumentSource] = ClassFieldCache.classInputFields(this.functionFieldClass)
   /** The @Output fields on this CommandLineFunction. */
-  def outputFields = QFunction.classFields(this.functionFieldClass).outputFields
+  def outputFields: Seq[ArgumentSource] = ClassFieldCache.classOutputFields(this.functionFieldClass)
   /** The @Argument fields on this CommandLineFunction. */
-  def argumentFields = QFunction.classFields(this.functionFieldClass).argumentFields
+  def argumentFields: Seq[ArgumentSource] = ClassFieldCache.classArgumentFields(this.functionFieldClass)
 
   /**
    * Returns the class that should be used for looking up fields.
@@ -218,6 +247,7 @@ trait QFunction extends Logging with QJobReport {
     var dirs = Set.empty[File]
     dirs += commandDirectory
     dirs += jobTempDir
+    dirs += jobLocalDir
     dirs += jobOutputFile.getParentFile
     if (jobErrorFile != null)
       dirs += jobErrorFile.getParentFile
@@ -356,11 +386,15 @@ trait QFunction extends Logging with QJobReport {
     if (jobTempDir == null)
       jobTempDir = qSettings.tempDirectory
 
+    if (jobLocalDir == null)
+      jobLocalDir = jobTempDir
+
     if (jobPriority.isEmpty)
       jobPriority = qSettings.jobPriority
 
-    // Do not set the temp dir relative to the command directory
+    // Do not set the temp and local dir relative to the command directory
     jobTempDir = IOUtils.absolute(jobTempDir)
+    jobLocalDir = IOUtils.absolute(jobLocalDir)
 
     absoluteCommandDirectory()
   }
@@ -461,72 +495,12 @@ trait QFunction extends Logging with QJobReport {
    * @param source Field to get the value for.
    * @return value of the field.
    */
-  def getFieldValue(source: ArgumentSource) = ReflectionUtils.getValue(invokeObj(source), source.field)
+  def getFieldValue(source: ArgumentSource) = ClassFieldCache.getFieldValue(this, source)
 
   /**
    * Gets the value of a field.
    * @param source Field to set the value for.
    * @return value of the field.
    */
-  def setFieldValue(source: ArgumentSource, value: Any) = ReflectionUtils.setValue(invokeObj(source), source.field, value)
-
-  /**
-   * Walks gets the fields in this object or any collections in that object
-   * recursively to find the object holding the field to be retrieved or set.
-   * @param source Field find the invoke object for.
-   * @return Object to invoke the field on.
-   */
-  private def invokeObj(source: ArgumentSource) = source.parentFields.foldLeft[AnyRef](this)(ReflectionUtils.getValue(_, _))
-}
-
-object QFunction {
-  var parsingEngine: ParsingEngine = _
-
-  /**
-   * The list of fields defined on a class
-   * @param clazz The class to lookup fields.
-   */
-  private class ClassFields(clazz: Class[_]) {
-    /** The complete list of fields on this CommandLineFunction. */
-    val functionFields: Seq[ArgumentSource] = parsingEngine.extractArgumentSources(clazz).toSeq
-    /** The @Input fields on this CommandLineFunction. */
-    val inputFields = functionFields.filter(source => ReflectionUtils.hasAnnotation(source.field, classOf[Input]))
-    /** The @Output fields on this CommandLineFunction. */
-    val outputFields = functionFields.filter(source => ReflectionUtils.hasAnnotation(source.field, classOf[Output]))
-    /** The @Argument fields on this CommandLineFunction. */
-    val argumentFields = functionFields.filter(source => ReflectionUtils.hasAnnotation(source.field, classOf[Argument]))
-  }
-
-  /**
-   * The mapping from class to fields.
-   */
-  private var classFieldsMap = Map.empty[Class[_], ClassFields]
-
-  /**
-   * Returns the field on clazz.
-   * @param clazz Class to search.
-   * @param name Name of the field to return.
-   * @return Argument source for the field.
-   */
-  def findField(clazz: Class[_], name: String) = {
-    classFields(clazz).functionFields.find(_.field.getName == name) match {
-      case Some(source) => source
-      case None => throw new QException("Could not find a field on class %s with name %s".format(clazz, name))
-    }
-  }
-
-  /**
-   * Returns the fields for a class.
-   * @param clazz Class to retrieve fields for.
-   * @return the fields for the class.
-   */
-  private def classFields(clazz: Class[_]) = {
-    classFieldsMap.get(clazz) match {
-      case Some(classFields) => classFields
-      case None =>
-        val classFields = new ClassFields(clazz)
-        classFieldsMap += clazz -> classFields
-        classFields
-    }
-  }
+  def setFieldValue(source: ArgumentSource, value: Any) = ClassFieldCache.setFieldValue(this, source, value)
 }

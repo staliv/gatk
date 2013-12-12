@@ -1,5 +1,31 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.walkers.annotator.interfaces;
 
+import org.broadinstitute.sting.utils.DeprecatedToolChecks;
 import org.broadinstitute.sting.utils.classloader.PluginManager;
 import org.broadinstitute.sting.utils.exceptions.UserException;
 
@@ -33,7 +59,7 @@ public class AnnotationInterfaceManager {
                 if ( interfaceClass == null )
                     interfaceClass = classMap.get(group + "Annotation");
                 if ( interfaceClass == null )
-                    throw new UserException.BadArgumentValue("group", "Class " + group + " is not found; please check that you have specified the class name correctly");
+                    throw new UserException.BadArgumentValue("group", "Annotation group " + group + " was not found; please check that you have specified the group name correctly");
             }
         }
 
@@ -42,8 +68,13 @@ public class AnnotationInterfaceManager {
             Class annotationClass = classMap.get(annotation);
             if ( annotationClass == null )
                 annotationClass = classMap.get(annotation + "Annotation");
-            if ( annotationClass == null )
-                throw new UserException.BadArgumentValue("annotation", "Class " + annotation + " is not found; please check that you have specified the class name correctly");
+            if ( annotationClass == null ) {
+                if (DeprecatedToolChecks.isDeprecatedAnnotation(annotation) ) {
+                    throw new UserException.DeprecatedAnnotation(annotation, DeprecatedToolChecks.getAnnotationDeprecationInfo(annotation));
+                } else {
+                    throw new UserException.BadArgumentValue("annotation", "Annotation " + annotation + " was not found; please check that you have specified the annotation name correctly");
+                }
+            }
         }
     }
 

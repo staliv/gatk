@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.varianteval;
 
@@ -50,23 +51,25 @@ import java.util.Map;
  * and supports writing out the data in these evaluators to a GATKReport.
  */
 public class VariantEvalReportWriter {
-    private final GATKReport report;
-    private final StratificationManager<VariantStratifier, EvaluationContext> stratManager;
 
-    public VariantEvalReportWriter(final StratificationManager<VariantStratifier, EvaluationContext> stratManager,
-                                   final Collection<VariantStratifier> stratifiers,
-                                   final Collection<VariantEvaluator> evaluators) {
-        this.stratManager = stratManager;
-        this.report = initializeGATKReport(stratifiers, evaluators);
-    }
+    protected VariantEvalReportWriter() {}  // no public access
 
     /**
      * The business end of the class.  Writes out the data in the provided stratManager
      * to the PrintStream out
      *
-     * @param out
+     * @param out            the output stream
+     * @param stratManager   the stratification manager
+     * @param stratifiers    the stratifiers
+     * @param evaluators     the evaluators
      */
-    public final void writeReport(final PrintStream out) {
+    public static void writeReport(final PrintStream out,
+                                   final StratificationManager<VariantStratifier, EvaluationContext> stratManager,
+                                   final Collection<VariantStratifier> stratifiers,
+                                   final Collection<VariantEvaluator> evaluators) {
+
+        final GATKReport report = initializeGATKReport(stratifiers, evaluators);
+
         for ( int key = 0; key < stratManager.size(); key++ ) {
             final String stratStateString = stratManager.getStratsAndStatesStringForKey(key);
             final List<Pair<VariantStratifier, Object>> stratsAndStates = stratManager.getStratsAndStatesForKey(key);
@@ -120,9 +123,10 @@ public class VariantEvalReportWriter {
      * @param primaryKey
      * @param stratsAndStates
      */
-    private void setStratificationColumns(final GATKReportTable table,
-                                                final String primaryKey,
-                                                final List<Pair<VariantStratifier, Object>> stratsAndStates) {
+    private static void setStratificationColumns(final GATKReportTable table,
+                                                 final String primaryKey,
+                                                 final List<Pair<VariantStratifier, Object>> stratsAndStates) {
+        table.set(primaryKey, table.getTableName(), table.getTableName());
         for ( final Pair<VariantStratifier, Object> stratAndState : stratsAndStates ) {
             final VariantStratifier vs = stratAndState.getFirst();
             final String columnName = vs.getName();
@@ -148,46 +152,45 @@ public class VariantEvalReportWriter {
      *
      * @return an initialized report object
      */
-    private GATKReport initializeGATKReport(final Collection<VariantStratifier> stratifiers,
-                                           final Collection<VariantEvaluator> evaluators) {
+    private static GATKReport initializeGATKReport(final Collection<VariantStratifier> stratifiers,
+                                                   final Collection<VariantEvaluator> evaluators) {
         final GATKReport report = new GATKReport();
 
         for (final VariantEvaluator ve : evaluators) {
+            final AnalysisModuleScanner scanner = new AnalysisModuleScanner(ve);
+            final Map<Field, DataPoint> datamap = scanner.getData();
+
             // create the table
             final String tableName = ve.getSimpleName();
             final String tableDesc = ve.getClass().getAnnotation(Analysis.class).description();
-            report.addTable(tableName, tableDesc, true);
+            report.addTable(tableName, tableDesc, 1 + stratifiers.size() + (scanner.hasMoltenField() ? 2 : datamap.size()), GATKReportTable.TableSortingWay.SORT_BY_ROW);
 
             // grab the table, and add the columns we need to it
             final GATKReportTable table = report.getTable(tableName);
-            table.addPrimaryKey("entry", false);
             table.addColumn(tableName, tableName);
 
             // first create a column to hold each stratifier state
             for (final VariantStratifier vs : stratifiers) {
                 final String columnName = vs.getName();
-                table.addColumn(columnName, null, vs.getFormat());
+                table.addColumn(columnName, vs.getFormat());
             }
 
-            final AnalysisModuleScanner scanner = new AnalysisModuleScanner(ve);
-            final Map<Field, DataPoint> datamap = scanner.getData();
-            
             if ( scanner.hasMoltenField() ) {
                 // deal with molten data
-                table.addColumn(scanner.getMoltenAnnotation().variableName(), true, scanner.getMoltenAnnotation().variableFormat());
-                table.addColumn(scanner.getMoltenAnnotation().valueName(), true, scanner.getMoltenAnnotation().valueFormat());
+                table.addColumn(scanner.getMoltenAnnotation().variableName(), scanner.getMoltenAnnotation().variableFormat());
+                table.addColumn(scanner.getMoltenAnnotation().valueName(), scanner.getMoltenAnnotation().valueFormat());
             } else {
                 if ( datamap.isEmpty() )
                     throw new ReviewedStingException("Datamap is empty for analysis " + scanner.getAnalysis());
                 
                 // add DataPoint's for each field marked as such
-                for (final Field field : datamap.keySet()) {
+                for (final Map.Entry<Field, DataPoint> field : datamap.entrySet()) {
                     try {
-                        field.setAccessible(true);
+                        field.getKey().setAccessible(true);
 
                         // this is an atomic value, add a column for it
-                        final String format = datamap.get(field).format();
-                        table.addColumn(field.getName(), true, format);
+                        final String format = field.getValue().format();
+                        table.addColumn(field.getKey().getName(), format);
                     } catch (SecurityException e) {
                         throw new StingException("SecurityException: " + e);
                     }

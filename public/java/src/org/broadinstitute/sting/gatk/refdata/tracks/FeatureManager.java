@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.refdata.tracks;
 
@@ -33,6 +34,7 @@ import org.broadinstitute.sting.gatk.refdata.ReferenceDependentFeatureCodec;
 import org.broadinstitute.sting.gatk.refdata.utils.RMDTriplet;
 import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.classloader.PluginManager;
+import org.broadinstitute.variant.vcf.AbstractVCFCodec;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 import org.broadinstitute.sting.utils.help.GATKDocUtils;
 
@@ -82,11 +84,17 @@ public class FeatureManager  {
 
     private final PluginManager<FeatureCodec> pluginManager;
     private final Collection<FeatureDescriptor> featureDescriptors = new TreeSet<FeatureDescriptor>();
+    private final boolean lenientVCFProcessing;
 
     /**
-     * Construct a FeatureManager
+     * Construct a FeatureManager without a master VCF header
      */
     public FeatureManager() {
+        this(false);
+    }
+
+    public FeatureManager(final boolean lenientVCFProcessing) {
+        this.lenientVCFProcessing = lenientVCFProcessing;
         pluginManager = new PluginManager<FeatureCodec>(FeatureCodec.class, "Codecs", "Codec");
 
         for (final String rawName: pluginManager.getPluginsByName().keySet()) {
@@ -217,10 +225,20 @@ public class FeatureManager  {
         docs.append(String.format(format, nameHeader, featureHeader, docHeader));
         for ( final FeatureDescriptor descriptor : featureDescriptors ) {
             if ( requiredFeatureType.isAssignableFrom(descriptor.getFeatureClass()) ) {
-                String oneDoc = String.format(format,
-                        descriptor.getName(),
-                        descriptor.getSimpleFeatureName(),
-                        GATKDocUtils.helpLinksToGATKDocs(descriptor.getCodecClass()));
+                final String DocURL = GATKDocUtils.helpLinksToGATKDocs(descriptor.getCodecClass());
+                final String oneDoc;
+                if ( DocURL.contains("_sting_") ) {
+                    oneDoc = String.format(format,
+                            descriptor.getName(),
+                            descriptor.getSimpleFeatureName(),
+                            DocURL);
+                } else {
+                    oneDoc = String.format(format,
+                            descriptor.getName(),
+                            descriptor.getSimpleFeatureName(),
+                            "(this is an external codec and is not documented within GATK)");
+                }
+
                 docs.append(oneDoc);
             }
         }
@@ -244,6 +262,9 @@ public class FeatureManager  {
             ((NameAwareCodec)codex).setName(name);
         if ( codex instanceof ReferenceDependentFeatureCodec )
             ((ReferenceDependentFeatureCodec)codex).setGenomeLocParser(genomeLocParser);
+        if ( codex instanceof AbstractVCFCodec && lenientVCFProcessing )
+            ((AbstractVCFCodec)codex).disableOnTheFlyModifications();
+
         return codex;
     }
 }

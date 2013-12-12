@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.annotator;
 
@@ -30,23 +31,27 @@ import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.gatk.contexts.AlignmentContext;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
-import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.AnnotatorCompatibleWalker;
+import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.AnnotatorCompatible;
 import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.InfoFieldAnnotation;
 import org.broadinstitute.sting.gatk.walkers.annotator.interfaces.RodRequiringAnnotation;
+import org.broadinstitute.sting.utils.genotyper.PerReadAlleleLikelihoodMap;
 import org.broadinstitute.sting.utils.Utils;
-import org.broadinstitute.sting.utils.codecs.vcf.*;
+import org.broadinstitute.sting.utils.variant.GATKVCFUtils;
+import org.broadinstitute.variant.vcf.*;
 import org.broadinstitute.sting.utils.exceptions.UserException;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
+import org.broadinstitute.variant.variantcontext.VariantContext;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * A set of genomic annotations based on the output of the SnpEff variant effect predictor tool
- * (http://snpeff.sourceforge.net/).
  *
- * For each variant, chooses one of the effects of highest biological impact from the SnpEff
+ * <p>See <a href='http://snpeff.sourceforge.net/'>http://snpeff.sourceforge.net/</a> for more information on the SnpEff tool</p>.
+ *
+ * <p>For each variant, this tool chooses one of the effects of highest biological impact from the SnpEff
  * output file (which must be provided on the command line via --snpEffFile filename.vcf),
- * and adds annotations on that effect.
+ * and adds annotations on that effect.</p>
  *
  * @author David Roazen
  */
@@ -59,6 +64,8 @@ public class SnpEff extends InfoFieldAnnotation implements RodRequiringAnnotatio
     public static final String[] SUPPORTED_SNPEFF_VERSIONS = { "2.0.5" };
     public static final String SNPEFF_VCF_HEADER_VERSION_LINE_KEY = "SnpEffVersion";
     public static final String SNPEFF_VCF_HEADER_COMMAND_LINE_KEY = "SnpEffCmd";
+    public static final String SNPEFF_GATK_COMPATIBILITY_ARGUMENT = "-o gatk";
+    public static final Pattern SNPEFF_GATK_COMPATIBILITY_ARGUMENT_PATTERN = Pattern.compile("-o\\s+gatk");
 
     // When we write the SnpEff version number and command line to the output VCF, we change
     // the key name slightly so that the output VCF won't be confused in the future for an
@@ -203,7 +210,7 @@ public class SnpEff extends InfoFieldAnnotation implements RodRequiringAnnotatio
         }
     }
 
-    public void initialize ( AnnotatorCompatibleWalker walker, GenomeAnalysisEngine toolkit, Set<VCFHeaderLine> headerLines ) {
+    public void initialize ( AnnotatorCompatible walker, GenomeAnalysisEngine toolkit, Set<VCFHeaderLine> headerLines ) {
         // Make sure that we actually have a valid SnpEff rod binding (just in case the user specified -A SnpEff
         // without providing a SnpEff rod via --snpEffFile):
         validateRodBinding(walker.getSnpEffRodBinding());
@@ -211,12 +218,11 @@ public class SnpEff extends InfoFieldAnnotation implements RodRequiringAnnotatio
 
         // Make sure that the SnpEff version number and command-line header lines are present in the VCF header of
         // the SnpEff rod, and that the file was generated by a supported version of SnpEff:
-        VCFHeader snpEffVCFHeader = VCFUtils.getVCFHeadersFromRods(toolkit, Arrays.asList(snpEffRodBinding.getName())).get(snpEffRodBinding.getName());
+        VCFHeader snpEffVCFHeader = GATKVCFUtils.getVCFHeadersFromRods(toolkit, Arrays.asList(snpEffRodBinding.getName())).get(snpEffRodBinding.getName());
         VCFHeaderLine snpEffVersionLine = snpEffVCFHeader.getOtherHeaderLine(SNPEFF_VCF_HEADER_VERSION_LINE_KEY);
         VCFHeaderLine snpEffCommandLine = snpEffVCFHeader.getOtherHeaderLine(SNPEFF_VCF_HEADER_COMMAND_LINE_KEY);
 
-        checkSnpEffVersion(snpEffVersionLine);
-        checkSnpEffCommandLine(snpEffCommandLine);
+        checkSnpEffVersionAndCommandLine(snpEffVersionLine, snpEffCommandLine);
 
         // If everything looks ok, add the SnpEff version number and command-line header lines to the
         // header of the VCF output file, changing the key names so that our output file won't be
@@ -225,7 +231,12 @@ public class SnpEff extends InfoFieldAnnotation implements RodRequiringAnnotatio
         headerLines.add(new VCFHeaderLine(OUTPUT_VCF_HEADER_COMMAND_LINE_KEY, snpEffCommandLine.getValue()));
     }
 
-    public Map<String, Object> annotate ( RefMetaDataTracker tracker, AnnotatorCompatibleWalker walker, ReferenceContext ref, Map<String, AlignmentContext> stratifiedContexts, VariantContext vc ) {
+    public Map<String, Object> annotate(final RefMetaDataTracker tracker,
+                                        final AnnotatorCompatible walker,
+                                        final ReferenceContext ref,
+                                        final Map<String, AlignmentContext> stratifiedContexts,
+                                        final VariantContext vc,
+                                        final Map<String, PerReadAlleleLikelihoodMap> stratifiedPerReadAlleleLikelihoodMap) {
         RodBinding<VariantContext> snpEffRodBinding = walker.getSnpEffRodBinding();
 
         // Get only SnpEff records that start at this locus, not merely span it:
@@ -258,37 +269,45 @@ public class SnpEff extends InfoFieldAnnotation implements RodRequiringAnnotatio
         }
     }
 
-    private void checkSnpEffVersion ( VCFHeaderLine snpEffVersionLine ) {
+    private void checkSnpEffVersionAndCommandLine( final VCFHeaderLine snpEffVersionLine, final VCFHeaderLine snpEffCommandLine ) {
         if ( snpEffVersionLine == null || snpEffVersionLine.getValue() == null || snpEffVersionLine.getValue().trim().length() == 0 ) {
-            throw new UserException("Could not find a " + SNPEFF_VCF_HEADER_VERSION_LINE_KEY + " entry in the VCF header for the SnpEff " +
-                                    "input file, and so could not verify that the file was generated by a supported version of SnpEff (" +
-                                    Arrays.toString(SUPPORTED_SNPEFF_VERSIONS) + ")");
+            throw new UserException(String.format("Could not find a %s entry in the VCF header for the SnpEff input file, " +
+                                                  "and so could not verify that the file was generated by a supported version of SnpEff (%s)",
+                                                  SNPEFF_VCF_HEADER_VERSION_LINE_KEY, supportedSnpEffVersionsString()));
+        }
+
+        if ( snpEffCommandLine == null || snpEffCommandLine.getValue() == null || snpEffCommandLine.getValue().trim().length() == 0 ) {
+            throw new UserException(String.format("Could not find a %s entry in the VCF header for the SnpEff input file, " +
+                                                  "which should be added by all supported versions of SnpEff (%s)",
+                                                  SNPEFF_VCF_HEADER_COMMAND_LINE_KEY, supportedSnpEffVersionsString()));
         }
 
         String snpEffVersionString = snpEffVersionLine.getValue().replaceAll("\"", "").split(" ")[0];
 
-        if ( ! isSupportedSnpEffVersion(snpEffVersionString) ) {
-            throw new UserException("The version of SnpEff used to generate the SnpEff input file (" + snpEffVersionString + ") " +
-                                    "is not currently supported by the GATK. Supported versions are: " + Arrays.toString(SUPPORTED_SNPEFF_VERSIONS));
+        if ( ! isSupportedSnpEffVersion(snpEffVersionString, snpEffCommandLine.getValue()) ) {
+            throw new UserException(String.format("The version of SnpEff used to generate the SnpEff input file (%s) " +
+                                                  "is not currently supported by the GATK, and was not run in GATK " +
+                                                  "compatibility mode. Supported versions are: %s",
+                                                  snpEffVersionString, supportedSnpEffVersionsString()));
         }
     }
 
-    private void checkSnpEffCommandLine ( VCFHeaderLine snpEffCommandLine ) {
-        if ( snpEffCommandLine == null || snpEffCommandLine.getValue() == null || snpEffCommandLine.getValue().trim().length() == 0 ) {
-            throw new UserException("Could not find a " + SNPEFF_VCF_HEADER_COMMAND_LINE_KEY + " entry in the VCF header for the SnpEff " +
-                                    "input file, which should be added by all supported versions of SnpEff (" +
-                                    Arrays.toString(SUPPORTED_SNPEFF_VERSIONS) + ")");
-        }
-    }
-
-    private boolean isSupportedSnpEffVersion ( String versionString ) {
+    private boolean isSupportedSnpEffVersion( final String versionString, final String commandLine ) {
+        // first check to see if it's an officially-supported version
         for ( String supportedVersion : SUPPORTED_SNPEFF_VERSIONS ) {
             if ( supportedVersion.equals(versionString) ) {
                 return true;
             }
         }
 
-        return false;
+        // if it's not an officially-supported version, check to see whether the
+        // "-o gatk" compatibility option was specified
+        return SNPEFF_GATK_COMPATIBILITY_ARGUMENT_PATTERN.matcher(commandLine).find();
+    }
+
+    private String supportedSnpEffVersionsString() {
+        return String.format("%s, as well as later versions when run with the option %s",
+                             Arrays.toString(SUPPORTED_SNPEFF_VERSIONS), SNPEFF_GATK_COMPATIBILITY_ARGUMENT);
     }
 
     private VariantContext getMatchingSnpEffRecord ( List<VariantContext> snpEffRecords, VariantContext vc ) {

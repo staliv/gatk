@@ -1,39 +1,38 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.datasources.reads;
 
 import net.sf.picard.util.PeekableIterator;
 import net.sf.samtools.GATKBAMFileSpan;
 import net.sf.samtools.GATKChunk;
-import net.sf.samtools.SAMFileHeader;
-import net.sf.samtools.SAMFileSpan;
-import net.sf.samtools.SAMSequenceDictionary;
 import net.sf.samtools.SAMSequenceRecord;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.GenomeLocSortedSet;
+import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 import org.broadinstitute.sting.utils.exceptions.UserException;
 import org.broadinstitute.sting.utils.sam.ReadUtils;
 
@@ -53,14 +52,15 @@ public class BAMScheduler implements Iterator<FilePointer> {
     private PeekableIterator<GenomeLoc> locusIterator;
     private GenomeLoc currentLocus;
 
-    public static BAMScheduler createOverMappedReads(final SAMDataSource dataSource, final SAMSequenceDictionary referenceSequenceDictionary, final GenomeLocParser parser) {
-        BAMScheduler scheduler = new BAMScheduler(dataSource);
-        GenomeLocSortedSet intervals = new GenomeLocSortedSet(parser);
-        for(SAMSequenceRecord sequence: referenceSequenceDictionary.getSequences()) {
-            // Match only on sequence name; trust startup validation to make sure all the sequences match.
-            if(dataSource.getHeader().getSequenceDictionary().getSequence(sequence.getSequenceName()) != null)
-                intervals.add(parser.createOverEntireContig(sequence.getSequenceName()));
-        }
+    /*
+     * Creates BAMScheduler using contigs from the given BAM data source.
+     *
+     * @param dataSource    BAM source
+     * @return non-null BAM scheduler
+     */
+    public static BAMScheduler createOverMappedReads(final SAMDataSource dataSource) {
+        final BAMScheduler scheduler = new BAMScheduler(dataSource);
+        final GenomeLocSortedSet intervals = GenomeLocSortedSet.createSetFromSequenceDictionary(dataSource.getHeader().getSequenceDictionary());
         scheduler.populateFilteredIntervalList(intervals);
         return scheduler;
     }
@@ -125,7 +125,16 @@ public class BAMScheduler implements Iterator<FilePointer> {
      */
     private FilePointer generatePointerOverEntireFileset() {
         FilePointer filePointer = new FilePointer();
-        Map<SAMReaderID,GATKBAMFileSpan> currentPosition = dataSource.getCurrentPosition();
+
+        // This is a "monolithic" FilePointer representing all regions in all files we will ever visit, and is
+        // the only FilePointer we will create. This allows us to have this FilePointer represent regions from
+        // multiple contigs
+        filePointer.setIsMonolithic(true);
+
+        Map<SAMReaderID,GATKBAMFileSpan> currentPosition;
+
+        currentPosition = dataSource.getInitialReaderPositions();
+
         for(SAMReaderID reader: dataSource.getReaderIDs())
             filePointer.addFileSpans(reader,createSpanToEndOfFile(currentPosition.get(reader).getGATKChunks().get(0).getChunkStart()));
         return filePointer;
@@ -238,6 +247,14 @@ public class BAMScheduler implements Iterator<FilePointer> {
     private PeekableIterator<BAMScheduleEntry> bamScheduleIterator = null;
 
     /**
+     * Clean up underlying BAMSchedule file handles.
+     */
+    public void close() {
+        if(bamScheduleIterator != null)
+            bamScheduleIterator.close();
+    }
+
+    /**
      * Get the next overlapping tree of bins associated with the given BAM file.
      * @param currentLocus The actual locus for which to check overlap.
      * @return The next schedule entry overlapping with the given list of loci.
@@ -265,7 +282,10 @@ public class BAMScheduler implements Iterator<FilePointer> {
             // Naive algorithm: find all elements in current contig for proper schedule creation.
             List<GenomeLoc> lociInContig = new LinkedList<GenomeLoc>();
             for(GenomeLoc locus: loci) {
-                if(!GenomeLoc.isUnmapped(locus) && dataSource.getHeader().getSequence(locus.getContig()).getSequenceIndex() == lastReferenceSequenceLoaded)
+                if (!GenomeLoc.isUnmapped(locus) && dataSource.getHeader().getSequence(locus.getContig()) == null)
+                    throw new ReviewedStingException("BAM file(s) do not have the contig: " + locus.getContig() + ". You are probably using a different reference than the one this file was aligned with");
+
+                if (!GenomeLoc.isUnmapped(locus) && dataSource.getHeader().getSequence(locus.getContig()).getSequenceIndex() == lastReferenceSequenceLoaded)
                     lociInContig.add(locus);
             }
 

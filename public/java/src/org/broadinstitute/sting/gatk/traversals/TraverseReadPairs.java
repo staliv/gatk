@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.traversals;
 
 import net.sf.samtools.SAMRecord;
@@ -24,10 +49,10 @@ import java.util.List;
 public class TraverseReadPairs<M,T> extends TraversalEngine<M,T, ReadPairWalker<M,T>,ReadShardDataProvider> {
 
     /** our log, which we want to capture anything from this class */
-    protected static Logger logger = Logger.getLogger(TraverseReadPairs.class);
+    protected static final Logger logger = Logger.getLogger(TraverseReadPairs.class);
 
     @Override
-    protected String getTraversalType() {
+    public String getTraversalUnits() {
         return "read pairs";
     }
 
@@ -42,7 +67,7 @@ public class TraverseReadPairs<M,T> extends TraversalEngine<M,T, ReadPairWalker<
     public T traverse(ReadPairWalker<M, T> walker,
                       ReadShardDataProvider dataProvider,
                       T sum) {
-        logger.debug(String.format("TraverseReads.traverse Covered dataset is %s", dataProvider));
+        logger.debug(String.format("TraverseReadsPairs.traverse Covered dataset is %s", dataProvider));
 
         if( !dataProvider.hasReads() )
             throw new IllegalArgumentException("Unable to traverse reads; no read data is available.");
@@ -65,7 +90,7 @@ public class TraverseReadPairs<M,T> extends TraversalEngine<M,T, ReadPairWalker<
                 pairs.clear();
                 pairs.add(read);
 
-                printProgress(dataProvider.getShard(),null);
+                printProgress(null);
             }
 
             done = walker.isDone();

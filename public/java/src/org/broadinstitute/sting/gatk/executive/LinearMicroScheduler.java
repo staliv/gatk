@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.executive;
 
 import net.sf.picard.reference.IndexedFastaSequenceFile;
@@ -10,10 +35,11 @@ import org.broadinstitute.sting.gatk.datasources.reads.Shard;
 import org.broadinstitute.sting.gatk.datasources.rmd.ReferenceOrderedDataSource;
 import org.broadinstitute.sting.gatk.io.DirectOutputTracker;
 import org.broadinstitute.sting.gatk.io.OutputTracker;
-import org.broadinstitute.sting.gatk.traversals.TraverseActiveRegions;
-import org.broadinstitute.sting.gatk.walkers.LocusWalker;
+import org.broadinstitute.sting.gatk.resourcemanagement.ThreadAllocation;
+import org.broadinstitute.sting.gatk.traversals.TraversalEngine;
 import org.broadinstitute.sting.gatk.walkers.Walker;
 import org.broadinstitute.sting.utils.SampleUtils;
+import org.broadinstitute.sting.utils.threading.ThreadEfficiencyMonitor;
 
 import java.util.Collection;
 
@@ -34,8 +60,16 @@ public class LinearMicroScheduler extends MicroScheduler {
      * @param reference Reference for driving the traversal.
      * @param rods      Reference-ordered data.
      */
-    protected LinearMicroScheduler(GenomeAnalysisEngine engine, Walker walker, SAMDataSource reads, IndexedFastaSequenceFile reference, Collection<ReferenceOrderedDataSource> rods ) {
-        super(engine, walker, reads, reference, rods);
+    protected LinearMicroScheduler(final GenomeAnalysisEngine engine,
+                                   final Walker walker,
+                                   final SAMDataSource reads,
+                                   final IndexedFastaSequenceFile reference,
+                                   final Collection<ReferenceOrderedDataSource> rods,
+                                   final ThreadAllocation threadAllocation) {
+        super(engine, walker, reads, reference, rods, threadAllocation);
+
+        if ( threadAllocation.monitorThreadEfficiency() )
+            setThreadEfficiencyMonitor(new ThreadEfficiencyMonitor());
     }
 
     /**
@@ -45,16 +79,18 @@ public class LinearMicroScheduler extends MicroScheduler {
      * @param shardStrategy A strategy for sharding the data.
      */
     public Object execute(Walker walker, Iterable<Shard> shardStrategy) {
+        super.startingExecution();
         walker.initialize();
         Accumulator accumulator = Accumulator.create(engine,walker);
 
         boolean done = walker.isDone();
         int counter = 0;
+
+        final TraversalEngine traversalEngine = borrowTraversalEngine(this);
         for (Shard shard : shardStrategy ) {
-            if ( done || shard == null ) // we ran out of shards that aren't owned
+            if ( abortExecution() || done || shard == null ) // we ran out of shards that aren't owned
                 break;
 
-            traversalEngine.startTimersIfNecessary();
             if(shard.getShardType() == Shard.ShardType.LOCUS) {
                 WindowMaker windowMaker = new WindowMaker(shard, engine.getGenomeLocParser(),
                         getReadIterator(shard), shard.getGenomeLocs(), SampleUtils.getSAMFileSamples(engine));
@@ -77,18 +113,12 @@ public class LinearMicroScheduler extends MicroScheduler {
             done = walker.isDone();
         }
 
-        // Special function call to empty out the work queue. Ugly for now but will be cleaned up when we eventually push this functionality more into the engine
-        if( traversalEngine instanceof TraverseActiveRegions ) {
-            final Object result = ((TraverseActiveRegions) traversalEngine).endTraversal(walker, accumulator.getReduceInit());
-            accumulator.accumulate(null, result); // Assumes only used with StandardAccumulator
-        }
-                
         Object result = accumulator.finishTraversal();
 
-        printOnTraversalDone(result);
-
         outputTracker.close();
+        returnTraversalEngine(this, traversalEngine);
         cleanup();
+        executionIsDone();
 
         return accumulator;
     }

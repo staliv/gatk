@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.engine
 
@@ -39,7 +40,7 @@ import collection.immutable.{TreeSet, TreeMap}
 import org.broadinstitute.sting.queue.function.scattergather.{ScatterFunction, CloneFunction, GatherFunction, ScatterGatherableFunction}
 import java.util.Date
 import org.broadinstitute.sting.utils.Utils
-import org.apache.commons.io.{FileUtils, IOUtils}
+import org.apache.commons.io.{FilenameUtils, FileUtils, IOUtils}
 import java.io.{OutputStreamWriter, File}
 
 /**
@@ -47,6 +48,7 @@ import java.io.{OutputStreamWriter, File}
  */
 class QGraph extends Logging {
   var settings: QGraphSettings = _
+  var messengers: Seq[QStatusMessenger] = Nil
 
   private def dryRun = !settings.run
   private var numMissingValues = 0
@@ -71,6 +73,16 @@ class QGraph extends Logging {
   private val inProcessManager = new InProcessJobManager
   private def managers = Seq[Any](inProcessManager, commandLineManager)
 
+  /**
+   * If true, we will write out incremental job reports
+   */
+  private val INCREMENTAL_JOBS_REPORT = true
+
+  /**
+   * Holds the optional jobInfoReporter structure
+   */
+  private var jobInfoReporter: QJobsReporter = null
+
   private class StatusCounts {
     var pending = 0
     var running = 0
@@ -78,6 +90,19 @@ class QGraph extends Logging {
     var done = 0
   }
   private val statusCounts = new StatusCounts
+
+  /**
+   * Final initialization step of this QGraph -- tell it runtime setting information
+   *
+   * The settings aren't necessarily available until after this QGraph object has been constructed, so
+   * this function must be called once the QGraphSettings have been filled in.
+   *
+   * @param settings QGraphSettings
+   */
+  def initializeWithSettings(settings: QGraphSettings) {
+    this.settings = settings
+    this.jobInfoReporter = createJobsReporter()
+  }
 
   /**
    * Adds a QScript created CommandLineFunction to the graph.
@@ -116,7 +141,7 @@ class QGraph extends Logging {
         val isReady = numMissingValues == 0
 
         if (this.jobGraph.edgeSet.isEmpty) {
-          logger.warn("Nothing to run! Were any Functions added?");
+          logger.warn("Nothing to run! Were any Functions added?")
         } else if (settings.getStatus) {
           logger.info("Checking pipeline status.")
           logStatus()
@@ -320,7 +345,7 @@ class QGraph extends Logging {
     if (settings.startFromScratch)
       logger.info("Will remove outputs from previous runs.")
 
-    updateGraphStatus(false)
+    updateGraphStatus(cleanOutputs = false)
 
     var readyJobs = getReadyJobs
     while (running && readyJobs.size > 0) {
@@ -361,7 +386,7 @@ class QGraph extends Logging {
    * Logs job statuses by traversing the graph and looking for status-related files
    */
   private def logStatus() {
-    updateGraphStatus(false)
+    updateGraphStatus(cleanOutputs = false)
     doStatus(status => logger.info(status))
   }
 
@@ -388,7 +413,7 @@ class QGraph extends Logging {
       if (settings.startFromScratch)
         logger.info("Removing outputs from previous runs.")
 
-      updateGraphStatus(true)
+      updateGraphStatus(cleanOutputs = true)
 
       var readyJobs = TreeSet.empty[FunctionEdge](functionOrdering)
       readyJobs ++= getReadyJobs
@@ -407,6 +432,7 @@ class QGraph extends Logging {
           val edge = readyJobs.head
           edge.runner = newRunner(edge.function)
           edge.start()
+          messengers.foreach(_.started(jobShortName(edge.function)))
           startedJobs += edge
           readyJobs -= edge
           logNextStatusCounts = true
@@ -442,8 +468,14 @@ class QGraph extends Logging {
         updateStatus()
 
         runningJobs.foreach(edge => edge.status match {
-          case RunnerStatus.DONE => doneJobs += edge
-          case RunnerStatus.FAILED => failedJobs += edge
+          case RunnerStatus.DONE => {
+            doneJobs += edge
+            messengers.foreach(_.done(jobShortName(edge.function)))
+          }
+          case RunnerStatus.FAILED => {
+            failedJobs += edge
+            messengers.foreach(_.exit(jobShortName(edge.function), edge.function.jobErrorLines.mkString("%n".format())))
+          }
           case RunnerStatus.RUNNING => /* do nothing while still running */
         })
 
@@ -467,13 +499,19 @@ class QGraph extends Logging {
           checkRetryJobs(failedJobs)
         }
 
+        // incremental
+        if ( logNextStatusCounts && INCREMENTAL_JOBS_REPORT ) {
+          logger.info("Writing incremental jobs reports...")
+          writeJobsReport(plot = false)
+        }
+
         readyJobs ++= getReadyJobs
       }
 
       logStatusCounts()
       deleteCleanup(-1)
     } catch {
-      case e =>
+      case e: Throwable =>
         logger.error("Uncaught error running jobs.", e)
         throw e
     } finally {
@@ -487,9 +525,13 @@ class QGraph extends Logging {
   private def nextRunningCheck(lastRunningCheck: Long) =
     ((30 * 1000L) - (System.currentTimeMillis - lastRunningCheck))
 
+  def formattedStatusCounts: String = {
+    "%d Pend, %d Run, %d Fail, %d Done".format(
+      statusCounts.pending, statusCounts.running, statusCounts.failed, statusCounts.done)
+  }
+
   private def logStatusCounts() {
-    logger.info("%d Pend, %d Run, %d Fail, %d Done".format(
-      statusCounts.pending, statusCounts.running, statusCounts.failed, statusCounts.done))
+    logger.info(formattedStatusCounts)
   }
 
   /**
@@ -502,6 +544,16 @@ class QGraph extends Logging {
     else
       traverseFunctions(edge => checkDone(edge, cleanOutputs))
     traverseFunctions(edge => recheckDone(edge))
+  }
+
+  // TODO: Yet another field to add (with overloads) to QFunction?
+  private def jobShortName(function: QFunction): String = {
+    var name = function.analysisName
+    if (function.isInstanceOf[CloneFunction]) {
+      val cloneFunction = function.asInstanceOf[CloneFunction]
+      name += " %d of %d".format(cloneFunction.cloneIndex, cloneFunction.cloneCount)
+    }
+    name
   }
 
   /**
@@ -662,11 +714,12 @@ class QGraph extends Logging {
   private def checkRetryJobs(failed: Set[FunctionEdge]) {
     if (settings.retries > 0) {
       for (failedJob <- failed) {
-        if (failedJob.function.jobRestartable && failedJob.retries < settings.retries) {
-          failedJob.retries += 1
-          failedJob.resetToPending(true)
+        if (failedJob.function.jobRestartable && failedJob.function.retries < settings.retries) {
+          failedJob.function.retries += 1
+          failedJob.function.setupRetry()
+          failedJob.resetToPending(cleanOutputs = true)
           logger.info("Reset for retry attempt %d of %d: %s".format(
-            failedJob.retries, settings.retries, failedJob.function.description))
+            failedJob.function.retries, settings.retries, failedJob.function.description))
           statusCounts.failed -= 1
           statusCounts.pending += 1
         } else {
@@ -733,7 +786,7 @@ class QGraph extends Logging {
   private def emailDescription(edge: FunctionEdge) = {
     val description = new StringBuilder
     if (settings.retries > 0)
-      description.append("Attempt %d of %d.%n".format(edge.retries + 1, settings.retries + 1))
+      description.append("Attempt %d of %d.%n".format(edge.function.retries + 1, settings.retries + 1))
     description.append(edge.function.description)
     description.toString()
   }
@@ -1077,10 +1130,43 @@ class QGraph extends Logging {
               runner.checkUnknownStatus()
             }
           } catch {
-            case e => /* ignore */
+            case e: Throwable => /* ignore */
           }
       }
     }
+  }
+
+  /**
+   * Create the jobsReporter for this QGraph, based on the settings data.
+   *
+   * Must be called after settings has been initialized properly
+   *
+   * @return
+   */
+  private def createJobsReporter(): QJobsReporter = {
+    val jobStringName = if (settings.jobReportFile != null)
+      settings.jobReportFile
+    else
+      settings.qSettings.runName + ".jobreport.txt"
+
+    val reportFile = org.broadinstitute.sting.utils.io.IOUtils.absolute(settings.qSettings.runDirectory, jobStringName)
+
+    val pdfFile = if ( settings.run )
+      Some(org.broadinstitute.sting.utils.io.IOUtils.absolute(settings.qSettings.runDirectory, FilenameUtils.removeExtension(jobStringName) + ".pdf"))
+    else
+      None
+
+    new QJobsReporter(settings.disableJobReport, reportFile, pdfFile)
+  }
+
+  /**
+   * Write, if possible, the jobs report
+   */
+  def writeJobsReport(plot: Boolean = true) {
+    // note: the previous logic didn't write the job report if the system was shutting down, but I don't
+    // see any reason not to write the job report
+    if ( jobInfoReporter != null )
+      jobInfoReporter.write(this, plot)
   }
 
   /**
@@ -1119,20 +1205,20 @@ class QGraph extends Logging {
               try {
                 manager.tryStop(managerRunners)
               } catch {
-                case e => /* ignore */
+                case e: Throwable => /* ignore */
               }
             for (runner <- managerRunners) {
               try {
                 runner.cleanup()
               } catch {
-                case e => /* ignore */
+                case e: Throwable => /* ignore */
               }
             }
           } finally {
             try {
               manager.exit()
             } catch {
-              case e => /* ignore */
+              case e: Throwable => /* ignore */
             }
           }
         }

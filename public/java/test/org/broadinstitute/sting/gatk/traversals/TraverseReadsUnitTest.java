@@ -1,25 +1,44 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.traversals;
 
-import net.sf.picard.reference.ReferenceSequenceFile;
 import net.sf.picard.reference.IndexedFastaSequenceFile;
+import net.sf.picard.reference.ReferenceSequenceFile;
 import org.broadinstitute.sting.BaseTest;
 import org.broadinstitute.sting.commandline.Tags;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
-import org.broadinstitute.sting.gatk.datasources.providers.ShardDataProvider;
 import org.broadinstitute.sting.gatk.datasources.providers.ReadShardDataProvider;
-import org.broadinstitute.sting.gatk.datasources.reads.ReadShardBalancer;
-import org.broadinstitute.sting.gatk.datasources.reads.SAMDataSource;
-import org.broadinstitute.sting.gatk.datasources.reads.Shard;
-import org.broadinstitute.sting.gatk.datasources.reads.SAMReaderID;
+import org.broadinstitute.sting.gatk.datasources.reads.*;
+import org.broadinstitute.sting.gatk.datasources.rmd.ReferenceOrderedDataSource;
 import org.broadinstitute.sting.gatk.resourcemanagement.ThreadAllocation;
-import org.broadinstitute.sting.gatk.walkers.qc.CountReadsWalker;
-import org.broadinstitute.sting.gatk.walkers.Walker;
+import org.broadinstitute.sting.gatk.walkers.ReadWalker;
+import org.broadinstitute.sting.gatk.walkers.qc.CountReads;
 import org.broadinstitute.sting.utils.GenomeLocParser;
 import org.broadinstitute.sting.utils.exceptions.UserException;
 import org.broadinstitute.sting.utils.fasta.CachingIndexedFastaSequenceFile;
-
-import static org.testng.Assert.fail;
-
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -29,7 +48,10 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+
+import static org.testng.Assert.fail;
 
 /**
  *
@@ -63,9 +85,9 @@ public class TraverseReadsUnitTest extends BaseTest {
     private SAMReaderID bam = new SAMReaderID(new File(validationDataLocation + "index_test.bam"),new Tags()); // TCGA-06-0188.aligned.duplicates_marked.bam");
     private File refFile = new File(validationDataLocation + "Homo_sapiens_assembly17.fasta");
     private List<SAMReaderID> bamList;
-    private Walker countReadWalker;
+    private ReadWalker countReadWalker;
     private File output;
-    private TraverseReads traversalEngine = null;
+    private TraverseReadsNano traversalEngine = null;
 
     private IndexedFastaSequenceFile ref = null;
     private GenomeLocParser genomeLocParser = null;
@@ -106,10 +128,10 @@ public class TraverseReadsUnitTest extends BaseTest {
 
         bamList = new ArrayList<SAMReaderID>();
         bamList.add(bam);
-        countReadWalker = new CountReadsWalker();
+        countReadWalker = new CountReads();
         
-        traversalEngine = new TraverseReads();
-        traversalEngine.initialize(engine);
+        traversalEngine = new TraverseReadsNano(1);
+        traversalEngine.initialize(engine, countReadWalker);
     }
 
     /** Test out that we can shard the file and iterate over every read */
@@ -122,24 +144,22 @@ public class TraverseReadsUnitTest extends BaseTest {
         Object accumulator = countReadWalker.reduceInit();
 
         for(Shard shard: shardStrategy) {
-            traversalEngine.startTimersIfNecessary();
-
             if (shard == null) {
                 fail("Shard == null");
             }
 
-            ShardDataProvider dataProvider = new ReadShardDataProvider(shard,genomeLocParser,dataSource.seek(shard),null,null);
+            ReadShardDataProvider dataProvider = new ReadShardDataProvider(shard,genomeLocParser,dataSource.seek(shard),null, Collections.<ReferenceOrderedDataSource>emptyList());
             accumulator = traversalEngine.traverse(countReadWalker, dataProvider, accumulator);
             dataProvider.close();
         }
 
         countReadWalker.onTraversalDone(accumulator);
 
-        if (!(accumulator instanceof Integer)) {
-            fail("Count read walker should return an interger.");
+        if (!(accumulator instanceof Long)) {
+            fail("Count read walker should return a Long.");
         }
-        if (((Integer) accumulator) != 10000) {
-            fail("there should be 10000 mapped reads in the index file, there was " + ((Integer) accumulator));
+        if (!accumulator.equals(new Long(10000))) {
+            fail("there should be 10000 mapped reads in the index file, there was " + (accumulator));
         }
     }
 

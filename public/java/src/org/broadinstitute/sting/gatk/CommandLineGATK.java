@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk;
 
@@ -42,16 +42,15 @@ import org.broadinstitute.sting.utils.text.TextFormattingUtils;
 import java.util.*;
 
 /**
+ * All command line parameters accepted by all tools in the GATK.
+ *
  * The GATK engine itself.  Manages map/reduce data access and runs walkers.
  *
  * We run command line GATK programs using this class.  It gets the command line args, parses them, and hands the
  * gatk all the parsed out information.  Pretty much anything dealing with the underlying system should go here,
  * the gatk engine should  deal with any data related information.
  */
-@DocumentedGATKFeature(
-        groupName = "GATK Engine",
-        summary = "Features and arguments for the GATK engine itself, available to all walkers.",
-        extraDocs = { UserException.class })
+@DocumentedGATKFeature(groupName = HelpConstants.DOCS_CAT_ENGINE)
 public class CommandLineGATK extends CommandLineExecutable {
     @Argument(fullName = "analysis_type", shortName = "T", doc = "Type of analysis to run")
     private String analysisName = null;
@@ -101,20 +100,53 @@ public class CommandLineGATK extends CommandLineExecutable {
             // TODO: Should Picard exceptions be, in general, UserExceptions or ReviewedStingExceptions?
             exitSystemWithError(e);
         } catch (SAMException e) {
-            checkForTooManyOpenFilesProblem(e.getMessage());
+            checkForMaskedUserErrors(e);
             exitSystemWithSamError(e);
         } catch (OutOfMemoryError e) {
             exitSystemWithUserError(new UserException.NotEnoughMemory());
         } catch (Throwable t) {
-            checkForTooManyOpenFilesProblem(t.getMessage());
+            checkForMaskedUserErrors(t);
             exitSystemWithError(t);
         }
     }
 
-    private static void checkForTooManyOpenFilesProblem(String message) {
-        // Special case the "Too many open files" error because it's a common User Error for which we know what to do
-        if ( message != null && message.indexOf("Too many open files") != -1 )
+    public static final String PICARD_TEXT_SAM_FILE_ERROR_1 = "Cannot use index file with textual SAM file";
+    public static final String PICARD_TEXT_SAM_FILE_ERROR_2 = "Cannot retrieve file pointers within SAM text files";
+    public static final String NO_SPACE_LEFT_ON_DEVICE_ERROR = "No space left on device";
+    public static final String DISK_QUOTA_EXCEEDED_ERROR = "Disk quota exceeded";
+
+    private static void checkForMaskedUserErrors(final Throwable t) {
+        // masked out of memory error
+        if ( t instanceof OutOfMemoryError )
+            exitSystemWithUserError(new UserException.NotEnoughMemory());
+        // masked user error
+        if ( t instanceof UserException || t instanceof TribbleException )
+            exitSystemWithUserError(new UserException(t.getMessage()));
+
+        // no message means no masked error
+        final String message = t.getMessage();
+        if ( message == null )
+            return;
+
+        // too many open files error
+        if ( message.contains("Too many open files") )
             exitSystemWithUserError(new UserException.TooManyOpenFiles());
+
+        // malformed BAM looks like a SAM file
+        if ( message.contains(PICARD_TEXT_SAM_FILE_ERROR_1) || message.contains(PICARD_TEXT_SAM_FILE_ERROR_2) )
+            exitSystemWithSamError(t);
+
+        // can't close tribble index when writing
+        if ( message.contains("Unable to close index for") )
+            exitSystemWithUserError(new UserException(t.getCause() == null ? message : t.getCause().getMessage()));
+
+        // disk is full
+        if ( message.contains(NO_SPACE_LEFT_ON_DEVICE_ERROR) || message.contains(DISK_QUOTA_EXCEEDED_ERROR) )
+            exitSystemWithUserError(new UserException.NoSpaceOnDevice());
+
+        // masked error wrapped in another one
+        if ( t.getCause() != null )
+            checkForMaskedUserErrors(t.getCause());
     }
 
     /**
@@ -126,8 +158,7 @@ public class CommandLineGATK extends CommandLineExecutable {
         List<String> header = new ArrayList<String>();
         header.add(String.format("The Genome Analysis Toolkit (GATK) v%s, Compiled %s",getVersionNumber(), getBuildTime()));
         header.add("Copyright (c) 2010 The Broad Institute");
-        header.add("Please view our documentation at http://www.broadinstitute.org/gsa/wiki");
-        header.add("For support, please view our support site at http://getsatisfaction.com/gsa");
+        header.add("For support and documentation go to " + HelpConstants.BASE_GATK_URL);
         return header;
     }
 

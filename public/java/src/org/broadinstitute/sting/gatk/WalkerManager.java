@@ -1,41 +1,44 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk;
 
 import org.broadinstitute.sting.commandline.Hidden;
 import org.broadinstitute.sting.gatk.datasources.rmd.ReferenceOrderedDataSource;
+import org.broadinstitute.sting.gatk.downsampling.DownsampleType;
+import org.broadinstitute.sting.gatk.downsampling.DownsamplingMethod;
 import org.broadinstitute.sting.gatk.filters.FilterManager;
 import org.broadinstitute.sting.gatk.filters.ReadFilter;
+import org.broadinstitute.sting.gatk.iterators.ReadTransformer;
 import org.broadinstitute.sting.gatk.walkers.*;
-import org.broadinstitute.sting.utils.baq.BAQ;
 import org.broadinstitute.sting.utils.classloader.PluginManager;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
 import org.broadinstitute.sting.utils.help.ResourceBundleExtractorDoclet;
 import org.broadinstitute.sting.utils.text.TextFormattingUtils;
 
+import java.lang.annotation.Annotation;
 import java.util.*;
 
 /**
@@ -49,7 +52,7 @@ public class WalkerManager extends PluginManager<Walker> {
     private ResourceBundle helpText;
 
     public WalkerManager() {
-        super(Walker.class,"walker","Walker");
+        super(Walker.class,"walker","");
         helpText = TextFormattingUtils.loadResourceBundle("StingText");
     }
 
@@ -302,10 +305,21 @@ public class WalkerManager extends PluginManager<Walker> {
      * Gets the type of downsampling method requested by the walker.  If an alternative
      * downsampling method is specified on the command-line, the command-line version will
      * be used instead.
+     * @param walker The walker to interrogate.
+     * @return The downsampling method, as specified by the walker.  Null if none exists.
+     */
+    public static DownsamplingMethod getDownsamplingMethod( Walker walker ) {
+        return getDownsamplingMethod(walker.getClass());
+    }
+
+    /**
+     * Gets the type of downsampling method requested by the walker.  If an alternative
+     * downsampling method is specified on the command-line, the command-line version will
+     * be used instead.
      * @param walkerClass The class of the walker to interrogate.
      * @return The downsampling method, as specified by the walker.  Null if none exists.
      */
-    public static DownsamplingMethod getDownsamplingMethod(Class<? extends Walker> walkerClass) {
+    public static DownsamplingMethod getDownsamplingMethod( Class<? extends Walker> walkerClass ) {
         DownsamplingMethod downsamplingMethod = null;
 
         if( walkerClass.isAnnotationPresent(Downsample.class) ) {
@@ -313,30 +327,19 @@ public class WalkerManager extends PluginManager<Walker> {
             DownsampleType type = downsampleParameters.by();
             Integer toCoverage = downsampleParameters.toCoverage() >= 0 ? downsampleParameters.toCoverage() : null;
             Double toFraction = downsampleParameters.toFraction() >= 0.0d ? downsampleParameters.toFraction() : null;
-            downsamplingMethod = new DownsamplingMethod(type,toCoverage,toFraction);
+            downsamplingMethod = new DownsamplingMethod(type, toCoverage, toFraction);
         }
 
         return downsamplingMethod;
     }
 
-    public static BAQ.QualityMode getBAQQualityMode(Walker walker) {
-        return walker.getClass().getAnnotation(BAQMode.class).QualityMode();
+    public static <T extends Annotation> T getWalkerAnnotation(final Walker walker, final Class<T> clazz) {
+        return walker.getClass().getAnnotation(clazz);
     }
 
-    public static BAQ.ApplicationTime getBAQApplicationTime(Walker walker) {
+    public static ReadTransformer.ApplicationTime getBAQApplicationTime(Walker walker) {
         return walker.getClass().getAnnotation(BAQMode.class).ApplicationTime();
     }    
-
-    /**
-     * Gets the type of downsampling method requested by the walker.  If an alternative
-     * downsampling method is specified on the command-line, the command-line version will
-     * be used instead.
-     * @param walker The walker to interrogate.
-     * @return The downsampling method, as specified by the walker.  Null if none exists.
-     */
-    public static DownsamplingMethod getDownsamplingMethod(Walker walker) {
-        return getDownsamplingMethod(walker.getClass());
-    }
 
     /**
      * Create a name for this type of walker.
@@ -345,11 +348,11 @@ public class WalkerManager extends PluginManager<Walker> {
      * @return A name for this type of walker.
      */
     @Override
-    public String getName(Class<? extends Walker> walkerType) {
+    public String getName(Class walkerType) {
         String walkerName = "";
 
         if (walkerType.getAnnotation(WalkerName.class) != null)
-            walkerName = walkerType.getAnnotation(WalkerName.class).value().trim();
+            walkerName = ((WalkerName)walkerType.getAnnotation(WalkerName.class)).value().trim();
         else
             walkerName = super.getName(walkerType);
 

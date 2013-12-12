@@ -1,9 +1,34 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.samples;
 
 import net.sf.samtools.SAMReadGroupRecord;
 import net.sf.samtools.SAMRecord;
 import org.broadinstitute.sting.utils.exceptions.StingException;
-import org.broadinstitute.sting.utils.variantcontext.Genotype;
+import org.broadinstitute.variant.variantcontext.Genotype;
 
 import java.util.*;
 
@@ -168,13 +193,70 @@ public class SampleDB {
         return families;
     }
 
+    /**
+     * Returns all the trios present in the sample database. The strictOneChild parameter determines
+     * whether multiple children of the same parents resolve to multiple trios, or are excluded
+     * @param strictOneChild - exclude pedigrees with >1 child for parental pair
+     * @return - all of the mother+father=child triplets, subject to strictOneChild
+     */
+    public final Set<Trio> getTrios(boolean strictOneChild) {
+        Set<Trio> trioSet = new HashSet<Trio>();
+        for ( String familyString : getFamilyIDs() ) {
+            Set<Sample> family = getFamily(familyString);
+            for ( Sample sample : family) {
+                if ( sample.getParents().size() == 2 ) {
+                    Trio trio = new Trio(sample.getMother(),sample.getFather(),sample);
+                    trioSet.add(trio);
+                }
+            }
+        }
+
+        if ( strictOneChild )
+            trioSet = removeTriosWithSameParents(trioSet);
+
+        return trioSet;
+    }
+
+    /**
+     * Returns all the trios present in the db. See getTrios(boolean strictOneChild)
+     * @return all the trios present in the samples db.
+     */
+    public final Set<Trio> getTrios() {
+        return getTrios(false);
+    }
+
+    /**
+     * Subsets a set of trios to only those with nonmatching founders. If two (or more) trio objects have
+     * the same mother and father, then both (all) are removed from the returned set.
+     * @param trios - a set of Trio objects
+     * @return those subset of Trio objects in the input set with nonmatching founders
+     */
+    private Set<Trio> removeTriosWithSameParents(final Set<Trio> trios) {
+        Set<Trio> filteredTrios = new HashSet<Trio>();
+        filteredTrios.addAll(trios);
+        Set<Trio> triosWithSameParents = new HashSet<Trio>();
+        for ( Trio referenceTrio : filteredTrios ) {
+            for ( Trio compareTrio : filteredTrios ) {
+                if ( referenceTrio != compareTrio &&
+                     referenceTrio.getFather().equals(compareTrio.getFather()) &&
+                     referenceTrio.getMother().equals(compareTrio.getMother()) ) {
+                    triosWithSameParents.add(referenceTrio);
+                    triosWithSameParents.add(compareTrio);
+                }
+            }
+        }
+        filteredTrios.removeAll(triosWithSameParents);
+        return filteredTrios;
+    }
 
     /**
      * Returns the set of all children that have both of their parents.
      * Note that if a family is composed of more than 1 child, each child is
      * returned.
      * @return - all the children that have both of their parents
+     * @deprecated - getTrios() replaces this function
      */
+    @Deprecated
     public final Set<Sample> getChildrenWithParents(){
         return getChildrenWithParents(false);
     }
@@ -188,7 +270,15 @@ public class SampleDB {
      *
      * @param triosOnly - if set to true, only strict trios are returned
      * @return - all the children that have both of their parents
+     * @deprecated - getTrios(boolean strict) replaces this function
+     * @bug -- does not work for extracting multiple generations of trios, e.g.
+     * ..........Mom1------Dad1
+     * ................|
+     * ..............Child1--------Mom2
+     * .......................|
+     * .....................Child2
      */
+    @Deprecated
     public final Set<Sample> getChildrenWithParents(boolean triosOnly) {
 
         Map<String, Set<Sample>> families = getFamilies();

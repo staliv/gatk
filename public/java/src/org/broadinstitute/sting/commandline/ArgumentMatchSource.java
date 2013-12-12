@@ -1,61 +1,60 @@
 /*
- * Copyright (c) 2011, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.commandline;
 
-import java.io.File;
-
 /**
- * Where an argument match originated, via the commandline or a file.
+ * Where an argument match originated, via the commandline or a custom provider.
  */
 public class ArgumentMatchSource implements Comparable<ArgumentMatchSource> {
     public static final ArgumentMatchSource COMMAND_LINE = new ArgumentMatchSource(ArgumentMatchSourceType.CommandLine, null);
 
     private final ArgumentMatchSourceType type;
-    private final File file;
+    private final String description;
 
     /**
      * Creates an argument match source from the specified file.
-     * @param file File specifying the arguments. Must not be null.
+     * @param description Where the arguments originated.
      */
-    public ArgumentMatchSource(File file) {
-        this(ArgumentMatchSourceType.File, file);
+    public ArgumentMatchSource(String description) {
+        this(ArgumentMatchSourceType.Provider, description);
     }
 
-    private ArgumentMatchSource(ArgumentMatchSourceType type, File file) {
-        if (type == ArgumentMatchSourceType.File && file == null)
-            throw new IllegalArgumentException("An argument match source of type File cannot have a null file.");
+    private ArgumentMatchSource(ArgumentMatchSourceType type, String description) {
+        if (type == ArgumentMatchSourceType.Provider && description == null)
+            throw new IllegalArgumentException("An argument match source provider cannot have a null description.");
         this.type = type;
-        this.file = file;
+        this.description = description;
     }
 
     public ArgumentMatchSourceType getType() {
         return type;
     }
 
-    public File getFile() {
-        return file;
+    public String getDescription() {
+        return description;
     }
 
     @Override
@@ -65,13 +64,13 @@ public class ArgumentMatchSource implements Comparable<ArgumentMatchSource> {
 
         ArgumentMatchSource that = (ArgumentMatchSource) o;
 
-        return (type == that.type) && (file == null ? that.file == null : file.equals(that.file));
+        return (type == that.type) && (description == null ? that.description == null : description.equals(that.description));
     }
 
     @Override
     public int hashCode() {
         int result = type != null ? type.hashCode() : 0;
-        result = 31 * result + (file != null ? file.hashCode() : 0);
+        result = 31 * result + (description != null ? description.hashCode() : 0);
         return result;
     }
 
@@ -84,15 +83,15 @@ public class ArgumentMatchSource implements Comparable<ArgumentMatchSource> {
         if (comp != 0)
             return comp;
 
-        File f1 = this.file;
-        File f2 = that.file;
+        String d1 = this.description;
+        String d2 = that.description;
 
-        if ((f1 == null) ^ (f2 == null)) {
-            // If one of the files is null and the other is not
-            // put the null file first
-            return f1 == null ? -1 : 1;
+        if ((d1 == null) ^ (d2 == null)) {
+            // If one of the descriptions is null and the other is not
+            // put the null description first
+            return d1 == null ? -1 : 1;
         }
 
-        return f1 == null ? 0 : f1.compareTo(f2);
+        return d1 == null ? 0 : d1.compareTo(d2);
     }
 }

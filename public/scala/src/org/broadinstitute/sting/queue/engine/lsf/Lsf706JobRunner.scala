@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.queue.engine.lsf
 
@@ -35,7 +36,7 @@ import org.broadinstitute.sting.queue.engine.{RunnerStatus, CommandLineJobRunner
 import java.util.regex.Pattern
 import java.lang.StringBuffer
 import java.util.Date
-import com.sun.jna.{Structure, StringArray, NativeLong}
+import com.sun.jna.{Pointer, Structure, StringArray, NativeLong}
 import com.sun.jna.ptr.IntByReference
 
 /**
@@ -70,7 +71,7 @@ class Lsf706JobRunner(val function: CommandLineFunction) extends CommandLineJobR
       for (i <- 0 until LibLsf.LSF_RLIM_NLIMITS)
         request.rLimits(i) = LibLsf.DEFAULT_RLIMIT;
 
-      request.jobName = function.description.take(LibBat.MAX_JOB_NAME_LEN)
+      request.jobName = function.jobRunnerJobName.take(LibBat.MAX_JOB_NAME_LEN)
       request.options |= LibBat.SUB_JOB_NAME
 
       // Set the output file for stdout
@@ -151,8 +152,11 @@ class Lsf706JobRunner(val function: CommandLineFunction) extends CommandLineJobR
           throw new QException("setOption_() returned -1 while setting esub");
       }
 
-      // LSF specific: get the max runtime for the jobQueue and pass it for this job
-      request.rLimits(LibLsf.LSF_RLIMIT_RUN) = Lsf706JobRunner.getRlimitRun(function.jobQueue)
+      if(!function.wallTime.isEmpty)
+        request.rLimits(LibLsf.LSF_RLIMIT_RUN) = function.wallTime.get.toInt
+      else
+        // LSF specific: get the max runtime for the jobQueue and pass it for this job
+        request.rLimits(LibLsf.LSF_RLIMIT_RUN) = Lsf706JobRunner.getRlimitRun(function.jobQueue)
 
       // Run the command as sh <jobScript>
       request.command = "sh " + jobScript
@@ -295,9 +299,17 @@ object Lsf706JobRunner extends Logging {
       // the platform LSF startTimes are in seconds, not milliseconds, so convert to the java convention
       runner.getRunInfo.startTime = new Date(jobInfo.startTime.longValue * 1000)
       runner.getRunInfo.doneTime = new Date(jobInfo.endTime.longValue * 1000)
-      val exHostsRaw = jobInfo.exHosts.getStringArray(0)
-      //logger.warn("exHostsRaw = " + exHostsRaw)
-      val exHostsList = exHostsRaw.toSeq
+
+      val exHostsList =
+        if (jobInfo.numExHosts != 1) {
+          // this is necessary because
+          val exHostsString = "multipleHosts_" + jobInfo.numExHosts
+          logger.debug("numExHosts = " + jobInfo.numExHosts + " != 1 for job " + runner.jobId + ", cannot safely get exhosts, setting to " + exHostsString)
+          List(exHostsString)
+        } else {
+          jobInfo.exHosts.getStringArray(0).toSeq
+        }
+
       //logger.warn("exHostsList = " + exHostsList)
       val exHosts = exHostsList.reduceLeft(_ + "," + _)
       //logger.warn("exHosts = " + exHosts)
@@ -349,7 +361,7 @@ object Lsf706JobRunner extends Logging {
           if (LibBat.lsb_signaljob(runner.jobId, SIGTERM) < 0)
             logger.error(LibBat.lsb_sperror("Unable to kill job " + runner.jobId))
         } catch {
-          case e =>
+          case e: Exception=>
             logger.error("Unable to kill job " + runner.jobId, e)
         }
       }

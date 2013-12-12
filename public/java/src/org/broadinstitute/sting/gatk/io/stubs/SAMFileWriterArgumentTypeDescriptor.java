@@ -1,27 +1,27 @@
 /*
- * Copyright (c) 2010 The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
- * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.io.stubs;
 
@@ -30,8 +30,8 @@ import org.broadinstitute.sting.commandline.*;
 import org.broadinstitute.sting.gatk.GenomeAnalysisEngine;
 import org.broadinstitute.sting.gatk.io.StingSAMFileWriter;
 import org.broadinstitute.sting.utils.exceptions.ReviewedStingException;
+import org.broadinstitute.sting.utils.sam.ReadUtils;
 
-import java.io.File;
 import java.io.OutputStream;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Type;
@@ -90,7 +90,7 @@ public class SAMFileWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor 
 
     @Override
     public boolean createsTypeDefault(ArgumentSource source) {
-        return source.isRequired();
+        return !source.isRequired() && source.defaultsToStdout();
     }
 
     @Override
@@ -100,7 +100,7 @@ public class SAMFileWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor 
 
     @Override
     public Object createTypeDefault(ParsingEngine parsingEngine,ArgumentSource source, Type type) {
-        if(!source.isRequired())
+        if(source.isRequired() || !source.defaultsToStdout())
             throw new ReviewedStingException("BUG: tried to create type default for argument type descriptor that can't support a type default.");
         SAMFileWriterStub stub = new SAMFileWriterStub(engine,defaultOutputStream);
         engine.addOutput(stub);
@@ -111,41 +111,41 @@ public class SAMFileWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor 
     public Object parse( ParsingEngine parsingEngine, ArgumentSource source, Type type, ArgumentMatches matches )  {
         // Extract all possible parameters that could be passed to a BAM file writer?
         ArgumentDefinition bamArgumentDefinition = createBAMArgumentDefinition(source);
-        String writerFileName = getArgumentValue( bamArgumentDefinition, matches );
+        ArgumentMatchValue writerFileName = getArgumentValue( bamArgumentDefinition, matches );
 
-        String compressionLevelText = getArgumentValue( createBAMCompressionArgumentDefinition(source), matches );
-        Integer compressionLevel = compressionLevelText != null ? Integer.valueOf(compressionLevelText) : null;
+        ArgumentMatchValue compressionLevelText = getArgumentValue( createBAMCompressionArgumentDefinition(source), matches );
+        Integer compressionLevel = compressionLevelText != null ? Integer.valueOf(compressionLevelText.asString()) : null;
 
-        Boolean indexOnTheFly = !argumentIsPresent(disableWriteIndexArgumentDefinition(source),matches) ? true : null;
-        Boolean generateMD5 = argumentIsPresent(this.enableMD5GenerationArgumentDefinition(source),matches) ? true : null;
-        Boolean simplifyBAM = argumentIsPresent(createSimplifyBAMArgumentDefinition(source),matches);
+        boolean indexOnTheFly = !argumentIsPresent(disableWriteIndexArgumentDefinition(source),matches);
+        boolean generateMD5 = argumentIsPresent(this.enableMD5GenerationArgumentDefinition(source),matches);
+        boolean simplifyBAM = argumentIsPresent(createSimplifyBAMArgumentDefinition(source),matches);
 
         // Validate the combination of parameters passed in.
 
         // This parser has been passed a null filename and the GATK is not responsible for creating a type default for the object;
         // therefore, the user must have failed to specify a type default
-        if(writerFileName == null) {
-            if(!source.isRequired())
-                throw new MissingArgumentValueException(bamArgumentDefinition);
-            if(generateMD5)
+        if(writerFileName != null && writerFileName.asFile() == null && generateMD5)
                 throw new ArgumentException("MD5 generation specified, but no output file specified.  If md5 generation is desired, please specify a BAM output file and an md5 file will be written alongside.");
-        }
 
         // Create the stub and set parameters.
-        SAMFileWriterStub stub = new SAMFileWriterStub(engine, new File(writerFileName));
+        SAMFileWriterStub stub = null;      // stub = new SAMFileWriterStub(engine, defaultOutputStream);
 
-        if( compressionLevel != null )
-            stub.setCompressionLevel(compressionLevel);
-        if(indexOnTheFly != null)
-            stub.setIndexOnTheFly(indexOnTheFly);
-        if(generateMD5 != null)
-            stub.setGenerateMD5(generateMD5);
-        if(simplifyBAM != null)
-            stub.setSimplifyBAM(simplifyBAM);
+        if (writerFileName != null &&  writerFileName.asFile() != null ) {
+            stub = new SAMFileWriterStub(engine, writerFileName.asFile());
 
-        // WARNING: Side effects required by engine!
-        parsingEngine.addTags(stub,getArgumentTags(matches));
-        engine.addOutput(stub);
+            if ( compressionLevel != null ) {
+                stub.setCompressionLevel(ReadUtils.validateCompressionLevel(compressionLevel));
+            } if ( indexOnTheFly )
+                stub.setIndexOnTheFly(indexOnTheFly);
+            if ( generateMD5 )
+                stub.setGenerateMD5(generateMD5);
+            if ( simplifyBAM )
+                stub.setSimplifyBAM(simplifyBAM);
+
+            // WARNING: Side effects required by engine!
+            parsingEngine.addTags(stub,getArgumentTags(matches));
+            engine.addOutput(stub);
+        }
 
         return stub;
     }
@@ -163,7 +163,7 @@ public class SAMFileWriterArgumentTypeDescriptor extends ArgumentTypeDescriptor 
                                        DEFAULT_ARGUMENT_FULLNAME,
                                        DEFAULT_ARGUMENT_SHORTNAME,
                                        ArgumentDefinition.getDoc(annotation),
-                                       false,
+                                       source.isRequired(),
                                        false,
                                        source.isMultiValued(),
                                        source.isHidden(),

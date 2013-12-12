@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.gatk.walkers.varianteval.evaluators;
 
@@ -29,17 +30,16 @@ import org.apache.log4j.Logger;
 import org.broadinstitute.sting.gatk.contexts.AlignmentContext;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
-import org.broadinstitute.sting.gatk.walkers.varianteval.VariantEvalWalker;
+import org.broadinstitute.sting.gatk.walkers.varianteval.VariantEval;
 import org.broadinstitute.sting.gatk.walkers.varianteval.util.Analysis;
 import org.broadinstitute.sting.gatk.walkers.varianteval.util.DataPoint;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.Utils;
-import org.broadinstitute.sting.utils.codecs.vcf.VCFConstants;
-import org.broadinstitute.sting.utils.exceptions.UserException;
+import org.broadinstitute.sting.utils.variant.GATKVariantContextUtils;
+import org.broadinstitute.variant.vcf.VCFConstants;
 import org.broadinstitute.sting.utils.interval.IntervalUtils;
-import org.broadinstitute.sting.utils.variantcontext.Genotype;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
-import org.broadinstitute.sting.utils.variantcontext.VariantContextUtils;
+import org.broadinstitute.variant.variantcontext.Genotype;
+import org.broadinstitute.variant.variantcontext.VariantContext;
 
 import java.util.*;
 
@@ -151,7 +151,7 @@ public class VariantSummary extends VariantEvaluator implements StandardEval {
     }
 
 
-    public void initialize(VariantEvalWalker walker) {
+    public void initialize(VariantEval walker) {
         super.initialize(walker);
 
         nSamples = walker.getSampleNamesForEvaluation().size();
@@ -186,13 +186,14 @@ public class VariantSummary extends VariantEvaluator implements StandardEval {
             case SYMBOLIC:
                 return Type.CNV;
             default:
-                throw new UserException.BadInput("Unexpected variant context type: " + vc);
+                //throw new UserException.BadInput("Unexpected variant context type: " + vc);
+                return null;
         }
     }
 
     private boolean overlapsKnownCNV(VariantContext cnv) {
         if ( knownCNVs != null ) {
-            final GenomeLoc loc = getWalker().getToolkit().getGenomeLocParser().createGenomeLoc(cnv, true);
+            final GenomeLoc loc = getWalker().getToolkit().getGenomeLocParser().createGenomeLoc(cnv);
             IntervalTree<GenomeLoc> intervalTree = knownCNVs.get(loc.getContig());
 
             final Iterator<IntervalTree.Node<GenomeLoc>> nodeIt = intervalTree.overlappers(loc.getStart(), loc.getStop());
@@ -211,6 +212,8 @@ public class VariantSummary extends VariantEvaluator implements StandardEval {
             return;
 
         final Type type = getType(eval);
+        if ( type == null )
+            return;
 
         TypeSampleMap titvTable = null;
 
@@ -223,7 +226,7 @@ public class VariantSummary extends VariantEvaluator implements StandardEval {
 
         // type specific calculations
         if ( type == Type.SNP && eval.isBiallelic() ) {
-            titvTable = VariantContextUtils.isTransition(eval) ? transitionsPerSample : transversionsPerSample;
+            titvTable = GATKVariantContextUtils.isTransition(eval) ? transitionsPerSample : transversionsPerSample;
             titvTable.inc(type, ALL);
         }
 
@@ -239,7 +242,7 @@ public class VariantSummary extends VariantEvaluator implements StandardEval {
                 // update transition / transversion ratio
                 if ( titvTable != null ) titvTable.inc(type, g.getSampleName());
 
-                if ( g.hasAttribute(VCFConstants.DEPTH_KEY) )
+                if ( g.hasDP() )
                     depthPerSample.inc(type, g.getSampleName());
             }
         }

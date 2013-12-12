@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.queue.qscripts.examples
 
 import org.broadinstitute.sting.queue.QScript
@@ -5,7 +30,8 @@ import org.broadinstitute.sting.queue.extensions.gatk._
 
 /**
  * An example building on the intro ExampleCountReads.scala.
- * Runs an INCOMPLETE version of the UnifiedGenotyper with VariantEval and optional VariantFiltration.
+ * Runs an INCOMPLETE variant calling pipeline with just the UnifiedGenotyper, VariantEval and optional VariantFiltration.
+ * For a complete description of the suggested for a variant calling pipeline see the latest version of the Best Practice Variant Detection document
  */
 class ExampleUnifiedGenotyper extends QScript {
   // Create an alias 'qscript' to be able to access variables
@@ -43,14 +69,12 @@ class ExampleUnifiedGenotyper extends QScript {
   }
 
   def script() {
-    // Create the four function that we can run.
+    // Create the four functions that we may run depending on options.
     val genotyper = new UnifiedGenotyper with UnifiedGenotyperArguments
     val variantFilter = new VariantFiltration with UnifiedGenotyperArguments
     val evalUnfiltered = new VariantEval with UnifiedGenotyperArguments
     val evalFiltered = new VariantEval with UnifiedGenotyperArguments
 
-    // If you are running this on a compute farm, make sure that the Sting/shell
-    // folder is in your path to use mergeText.sh and splitIntervals.sh.
     genotyper.scatterCount = 3
     genotyper.input_file :+= qscript.bamFile
     genotyper.out = swapExt(qscript.bamFile, "bam", "unfiltered.vcf")

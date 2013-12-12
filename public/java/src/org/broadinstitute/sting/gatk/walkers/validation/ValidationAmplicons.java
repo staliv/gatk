@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.gatk.walkers.validation;
 
 import net.sf.picard.reference.ReferenceSequenceFileFactory;
@@ -8,6 +33,7 @@ import org.broadinstitute.sting.alignment.bwa.BWAConfiguration;
 import org.broadinstitute.sting.alignment.bwa.BWTFiles;
 import org.broadinstitute.sting.alignment.bwa.c.BWACAligner;
 import org.broadinstitute.sting.commandline.*;
+import org.broadinstitute.sting.gatk.CommandLineGATK;
 import org.broadinstitute.sting.gatk.contexts.AlignmentContext;
 import org.broadinstitute.sting.gatk.contexts.ReferenceContext;
 import org.broadinstitute.sting.gatk.refdata.RefMetaDataTracker;
@@ -18,11 +44,14 @@ import org.broadinstitute.sting.gatk.walkers.RodWalker;
 import org.broadinstitute.sting.utils.BaseUtils;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.Utils;
-import org.broadinstitute.sting.utils.variantcontext.VariantContext;
+import org.broadinstitute.sting.utils.help.DocumentedGATKFeature;
+import org.broadinstitute.sting.utils.help.HelpConstants;
+import org.broadinstitute.variant.variantcontext.VariantContext;
 
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -36,13 +65,13 @@ import java.util.List;
  * reasons why the site may fail validation (nearby variation, for example).
  * </p>
  *
- * <h2>Input</h2>
+ * <h3>Input</h3>
  * <p>
  * Requires a VCF containing alleles to design amplicons towards, a VCF of variants to mask out of the amplicons, and an
  * interval list defining the size of the amplicons around the sites to be validated
  * </p>
  *
- * <h2>Output</h2>
+ * <h3>Output</h3>
  * <p>
  * Output is a FASTA-formatted file with some modifications at probe sites. For instance:
  * <pre>
@@ -71,7 +100,7 @@ import java.util.List;
  * INDEL_OVERLAPS_VALIDATION_SITE, // an insertion or deletion interferes directly with the site to be validated (i.e. insertion directly preceding or postceding, or a deletion that spans the site itself)
  * </pre></p>
  *
- * <h2>Examples</h2>
+ * <h3>Examples</h3>
  * <pre>
  *    java
  *      -jar GenomeAnalysisTK.jar
@@ -88,6 +117,7 @@ import java.util.List;
  * @author chartl
  * @since July 2011
  */
+@DocumentedGATKFeature( groupName = HelpConstants.DOCS_CAT_VALIDATION, extraDocs = {CommandLineGATK.class} )
 @Requires(value={DataSource.REFERENCE})
 public class ValidationAmplicons extends RodWalker<Integer,Integer> {
     /**
@@ -259,20 +289,33 @@ public class ValidationAmplicons extends RodWalker<Integer,Integer> {
                 sequenceInvalid = true;
                 invReason.add("SITE_IS_FILTERED");
             }
+
+            String refString = validate.getReference().getDisplayString();
+            String altString = validate.getAlternateAllele(0).getDisplayString();
+
             if ( validate.isIndel() ) {
                 sequence.append(Character.toUpperCase((char)ref.getBase()));
                 rawSequence.append(Character.toUpperCase((char)ref.getBase()));
+                final byte[] refAllele = validate.getReference().getBases();
+                refString = new String(Arrays.copyOfRange(refAllele, 1, refAllele.length));
+                if ( refString.isEmpty() )
+                    refString = "-";
+                final byte[] altAllele = validate.getAlternateAllele(0).getBases();
+                altString = new String(Arrays.copyOfRange(altAllele, 1, altAllele.length));
+                if ( altString.isEmpty() )
+                    altString = "-";
             }
+
             sequence.append('[');
-            sequence.append(validate.getAlternateAllele(0).toString());
+            sequence.append(altString);
             sequence.append('/');
-            sequence.append(validate.getReference().toString());
+            sequence.append(refString);
             sequence.append(']');
             // do this to the raw sequence to -- the indeces will line up that way
             rawSequence.append('[');
-            rawSequence.append(validate.getAlternateAllele(0).getBaseString());
+            rawSequence.append(altString);
             rawSequence.append('/');
-            rawSequence.append(validate.getReference().getBaseString());
+            rawSequence.append(refString);
             rawSequence.append(']');
             allelePos = ref.getLocus();
             if ( indelCounter > 0 ) {
@@ -313,7 +356,7 @@ public class ValidationAmplicons extends RodWalker<Integer,Integer> {
                 if ( lowerCaseSNPs ) {
                     sequence.append(Character.toLowerCase((char) ref.getBase()));
                 } else {
-                    sequence.append((char) BaseUtils.N);
+                    sequence.append((char) BaseUtils.Base.N.base);
                 }
 
                 rawSequence.append(Character.toUpperCase((char) ref.getBase()));

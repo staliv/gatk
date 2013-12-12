@@ -1,3 +1,28 @@
+/*
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
 package org.broadinstitute.sting.utils.interval;
 
 import com.google.java.contract.Ensures;
@@ -6,6 +31,9 @@ import net.sf.picard.util.Interval;
 import net.sf.picard.util.IntervalList;
 import net.sf.samtools.SAMFileHeader;
 import org.apache.log4j.Logger;
+import org.broad.tribble.Feature;
+import org.broadinstitute.sting.commandline.IntervalArgumentCollection;
+import org.broadinstitute.sting.commandline.IntervalBinding;
 import org.broadinstitute.sting.gatk.datasources.reference.ReferenceDataSource;
 import org.broadinstitute.sting.utils.GenomeLoc;
 import org.broadinstitute.sting.utils.GenomeLocParser;
@@ -169,20 +197,22 @@ public class IntervalUtils {
      */
     public static List<GenomeLoc> mergeListsBySetOperator(List<GenomeLoc> setOne, List<GenomeLoc> setTwo, IntervalSetRule rule) {
         // shortcut, if either set is zero, return the other set
-        if (setOne == null || setOne.size() == 0 || setTwo == null || setTwo.size() == 0) return (setOne == null || setOne.size() == 0) ? setTwo : setOne;
+        if (setOne == null || setOne.size() == 0 || setTwo == null || setTwo.size() == 0)
+            return Collections.unmodifiableList((setOne == null || setOne.size() == 0) ? setTwo : setOne);
+
+        // our master list, since we can't guarantee removal time in a generic list
+        LinkedList<GenomeLoc> retList = new LinkedList<GenomeLoc>();
 
         // if we're set to UNION, just add them all
-        if (rule == IntervalSetRule.UNION) {
-            setOne.addAll(setTwo);
-            return setOne;
+        if (rule == null || rule == IntervalSetRule.UNION) {
+            retList.addAll(setOne);
+            retList.addAll(setTwo);
+            return Collections.unmodifiableList(retList);
         }
 
         // else we're INTERSECTION, create two indexes into the lists
         int iOne = 0;
         int iTwo = 0;
-
-        // our master list, since we can't guarantee removal time in a generic list
-        LinkedList<GenomeLoc> retList = new LinkedList<GenomeLoc>();
 
         // merge the second into the first using the rule
         while (iTwo < setTwo.size() && iOne < setOne.size())
@@ -204,7 +234,7 @@ public class IntervalUtils {
                 throw new UserException.BadInput("The INTERSECTION of your -L options produced no intervals.");
 
         // we don't need to add the rest of remaining locations, since we know they don't overlap. return what we have
-        return retList;
+        return Collections.unmodifiableList(retList);
     }
 
     /**
@@ -218,6 +248,8 @@ public class IntervalUtils {
      * @return A sorted, merged version of the intervals passed in.
      */
     public static GenomeLocSortedSet sortAndMergeIntervals(GenomeLocParser parser, List<GenomeLoc> intervals, IntervalMergingRule mergingRule) {
+        // Make a copy of the (potentially unmodifiable) list to be sorted
+        intervals = new ArrayList<GenomeLoc>(intervals);
         // sort raw interval list
         Collections.sort(intervals);
         // now merge raw interval list
@@ -481,6 +513,111 @@ public class IntervalUtils {
         return new SplitLocusRecursive(split, remaining);
     }
 
+    /**
+     * Setup the intervals to be processed
+     */
+    public static GenomeLocSortedSet parseIntervalBindings(
+            final ReferenceDataSource referenceDataSource,
+            final List<IntervalBinding<Feature>> intervals,
+            final IntervalSetRule intervalSetRule, final IntervalMergingRule intervalMergingRule, final int intervalPadding,
+            final List<IntervalBinding<Feature>> excludeIntervals) {
+
+        Pair<GenomeLocSortedSet, GenomeLocSortedSet> includeExcludePair = parseIntervalBindingsPair(
+                referenceDataSource, intervals, intervalSetRule, intervalMergingRule, intervalPadding, excludeIntervals);
+
+        GenomeLocSortedSet includeSortedSet = includeExcludePair.getFirst();
+        GenomeLocSortedSet excludeSortedSet = includeExcludePair.getSecond();
+
+        if (excludeSortedSet != null) {
+            return includeSortedSet.subtractRegions(excludeSortedSet);
+        } else {
+            return includeSortedSet;
+        }
+    }
+
+    public static GenomeLocSortedSet parseIntervalArguments(final ReferenceDataSource referenceDataSource, IntervalArgumentCollection argCollection) {
+        GenomeLocSortedSet intervals = null;
+
+        // return if no interval arguments at all
+        if ( argCollection.intervals == null && argCollection.excludeIntervals == null )
+            return intervals;
+
+        // Note that the use of '-L all' is no longer supported.
+
+        // if include argument isn't given, create new set of all possible intervals
+
+        final Pair<GenomeLocSortedSet, GenomeLocSortedSet> includeExcludePair = IntervalUtils.parseIntervalBindingsPair(
+                referenceDataSource,
+                argCollection.intervals,
+                argCollection.intervalSetRule, argCollection.intervalMerging, argCollection.intervalPadding,
+                argCollection.excludeIntervals);
+
+        final GenomeLocSortedSet includeSortedSet = includeExcludePair.getFirst();
+        final GenomeLocSortedSet excludeSortedSet = includeExcludePair.getSecond();
+
+        // if no exclude arguments, can return parseIntervalArguments directly
+        if ( excludeSortedSet == null )
+            intervals = includeSortedSet;
+
+            // otherwise there are exclude arguments => must merge include and exclude GenomeLocSortedSets
+        else {
+            intervals = includeSortedSet.subtractRegions(excludeSortedSet);
+
+            // logging messages only printed when exclude (-XL) arguments are given
+            final long toPruneSize = includeSortedSet.coveredSize();
+            final long toExcludeSize = excludeSortedSet.coveredSize();
+            final long intervalSize = intervals.coveredSize();
+            logger.info(String.format("Initial include intervals span %d loci; exclude intervals span %d loci", toPruneSize, toExcludeSize));
+            logger.info(String.format("Excluding %d loci from original intervals (%.2f%% reduction)",
+                    toPruneSize - intervalSize, (toPruneSize - intervalSize) / (0.01 * toPruneSize)));
+        }
+
+        logger.info(String.format("Processing %d bp from intervals", intervals.coveredSize()));
+        return intervals;
+    }
+
+    public static Pair<GenomeLocSortedSet, GenomeLocSortedSet> parseIntervalBindingsPair(
+            final ReferenceDataSource referenceDataSource,
+            final List<IntervalBinding<Feature>> intervals,
+            final IntervalSetRule intervalSetRule, final IntervalMergingRule intervalMergingRule, final int intervalPadding,
+            final List<IntervalBinding<Feature>> excludeIntervals) {
+        GenomeLocParser genomeLocParser = new GenomeLocParser(referenceDataSource.getReference());
+
+        // if include argument isn't given, create new set of all possible intervals
+        GenomeLocSortedSet includeSortedSet = ((intervals == null || intervals.size() == 0) ?
+                GenomeLocSortedSet.createSetFromSequenceDictionary(referenceDataSource.getReference().getSequenceDictionary()) :
+                loadIntervals(intervals, intervalSetRule, intervalMergingRule, intervalPadding, genomeLocParser));
+
+        GenomeLocSortedSet excludeSortedSet = null;
+        if (excludeIntervals != null && excludeIntervals.size() > 0) {
+            excludeSortedSet = loadIntervals(excludeIntervals, IntervalSetRule.UNION, intervalMergingRule, 0, genomeLocParser);
+        }
+        return new Pair<GenomeLocSortedSet, GenomeLocSortedSet>(includeSortedSet, excludeSortedSet);
+    }
+
+    public static GenomeLocSortedSet loadIntervals(
+            final List<IntervalBinding<Feature>> intervalBindings,
+            final IntervalSetRule rule, final IntervalMergingRule intervalMergingRule, final int padding,
+            final GenomeLocParser genomeLocParser) {
+        List<GenomeLoc> allIntervals = new ArrayList<GenomeLoc>();
+        for ( IntervalBinding intervalBinding : intervalBindings) {
+            @SuppressWarnings("unchecked")
+            List<GenomeLoc> intervals = intervalBinding.getIntervals(genomeLocParser);
+
+            if ( intervals.isEmpty() ) {
+                logger.warn("The interval file " + intervalBinding.getSource() + " contains no intervals that could be parsed.");
+            }
+
+            if ( padding > 0 ) {
+                intervals = getIntervalsWithFlanks(genomeLocParser, intervals, padding);
+            }
+
+            allIntervals = mergeListsBySetOperator(intervals, allIntervals, rule);
+        }
+
+        return sortAndMergeIntervals(genomeLocParser, allIntervals, intervalMergingRule);
+    }
+
     private final static class SplitLocusRecursive {
         final List<GenomeLoc> split;
         final LinkedList<GenomeLoc> remaining;
@@ -546,7 +683,7 @@ public class IntervalUtils {
      */
     public static List<GenomeLoc> mergeIntervalLocations(final List<GenomeLoc> raw, IntervalMergingRule rule) {
         if (raw.size() <= 1)
-            return raw;
+            return Collections.unmodifiableList(raw);
         else {
             ArrayList<GenomeLoc> merged = new ArrayList<GenomeLoc>();
             Iterator<GenomeLoc> it = raw.iterator();
@@ -555,7 +692,7 @@ public class IntervalUtils {
                 GenomeLoc curr = it.next();
                 if (prev.overlapsP(curr)) {
                     prev = prev.merge(curr);
-                } else if (prev.contiguousP(curr) && rule == IntervalMergingRule.ALL) {
+                } else if (prev.contiguousP(curr) && (rule == null || rule == IntervalMergingRule.ALL)) {
                     prev = prev.merge(curr);
                 } else {
                     merged.add(prev);
@@ -563,7 +700,7 @@ public class IntervalUtils {
                 }
             }
             merged.add(prev);
-            return merged;
+            return Collections.unmodifiableList(merged);
         }
     }
 
@@ -611,8 +748,8 @@ public class IntervalUtils {
 
         LinkedHashMap<String, List<GenomeLoc>> locsByContig = splitByContig(sorted);
         List<GenomeLoc> expanded = new ArrayList<GenomeLoc>();
-        for (String contig: locsByContig.keySet()) {
-            List<GenomeLoc> contigLocs = locsByContig.get(contig);
+        for (Map.Entry<String, List<GenomeLoc>> contig: locsByContig.entrySet()) {
+            List<GenomeLoc> contigLocs = contig.getValue();
             int contigLocsSize = contigLocs.size();
 
             GenomeLoc startLoc, stopLoc;
@@ -646,6 +783,26 @@ public class IntervalUtils {
                 expanded.add(stopLoc);
         }
         return expanded;
+    }
+
+    /**
+     * Returns a list of intervals between the passed int locs. Does not extend UNMAPPED locs.
+     * @param parser A genome loc parser for creating the new intervals
+     * @param locs Original genome locs
+     * @param basePairs Number of base pairs on each side of loc
+     * @return The list of intervals between the locs
+     */
+    public static List<GenomeLoc> getIntervalsWithFlanks(final GenomeLocParser parser, final List<GenomeLoc> locs, final int basePairs) {
+
+        if (locs.size() == 0)
+            return Collections.emptyList();
+
+        final List<GenomeLoc> expanded = new ArrayList<GenomeLoc>();
+        for ( final GenomeLoc loc : locs ) {
+            expanded.add(parser.createPaddedGenomeLoc(loc, basePairs));
+        }
+
+        return sortAndMergeIntervals(parser, expanded, IntervalMergingRule.ALL).toList();
     }
 
     private static LinkedHashMap<String, List<GenomeLoc>> splitByContig(List<GenomeLoc> sorted) {

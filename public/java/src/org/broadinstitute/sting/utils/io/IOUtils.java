@@ -1,26 +1,27 @@
 /*
- * Copyright (c) 2012, The Broad Institute
- *
- * Permission is hereby granted, free of charge, to any person
- * obtaining a copy of this software and associated documentation
- * files (the "Software"), to deal in the Software without
- * restriction, including without limitation the rights to use,
- * copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following
- * conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- */
+* Copyright (c) 2012 The Broad Institute
+* 
+* Permission is hereby granted, free of charge, to any person
+* obtaining a copy of this software and associated documentation
+* files (the "Software"), to deal in the Software without
+* restriction, including without limitation the rights to use,
+* copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following
+* conditions:
+* 
+* The above copyright notice and this permission notice shall be
+* included in all copies or substantial portions of the Software.
+* 
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+* NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+* THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 
 package org.broadinstitute.sting.utils.io;
 
@@ -48,14 +49,23 @@ public class IOUtils {
      * @param tempDir Temporary directory.
      */
     public static void checkTempDir(File tempDir) {
+        if (isDefaultTempDir(tempDir))
+            throw new UserException.BadTmpDir("java.io.tmpdir must be explicitly set");
+        if (!tempDir.exists() && !tempDir.mkdirs())
+            throw new UserException.BadTmpDir("Could not create directory: " + tempDir.getAbsolutePath());
+    }
+
+    /**
+     * Returns true if the directory is a default temporary directory.
+     * @param tempDir the directory to check.
+     * @return true if the directory is a default temporary directory.
+     */
+    public static boolean isDefaultTempDir(File tempDir) {
         String tempDirPath = tempDir.getAbsolutePath();
         // Keeps the user from leaving the temp directory as the default, and on Macs from having pluses
         // in the path which can cause problems with the Google Reflections library.
         // see also: http://benjchristensen.com/2009/09/22/mac-osx-10-6-java-java-io-tmpdir/
-        if (tempDirPath.startsWith("/var/folders/") || (tempDirPath.equals("/tmp")) || (tempDirPath.equals("/tmp/")))
-            throw new UserException.BadTmpDir("java.io.tmpdir must be explicitly set");
-        if (!tempDir.exists() && !tempDir.mkdirs())
-            throw new UserException.BadTmpDir("Could not create directory: " + tempDir.getAbsolutePath());
+        return (tempDirPath.startsWith("/var/folders/") || (tempDirPath.equals("/tmp")) || (tempDirPath.equals("/tmp/")));
     }
 
     /**
@@ -349,19 +359,9 @@ public class IOUtils {
      */
     public static void writeResource(Resource resource, File file) {
         String path = resource.getPath();
-        Class<?> clazz = resource.getRelativeClass();
-        InputStream inputStream = null;
+        InputStream inputStream = resource.getResourceContentsAsStream();
         OutputStream outputStream = null;
         try {
-            if (clazz == null) {
-                inputStream = ClassLoader.getSystemResourceAsStream(path);
-                if (inputStream == null)
-                    throw new IllegalArgumentException("Resource not found: " + path);
-            } else {
-                inputStream = clazz.getResourceAsStream(path);
-                if (inputStream == null)
-                    throw new IllegalArgumentException("Resource not found relative to " + clazz + ": " + path);
-            }
             outputStream = FileUtils.openOutputStream(file);
             org.apache.commons.io.IOUtils.copy(inputStream, outputStream);
         } catch (IOException e) {
